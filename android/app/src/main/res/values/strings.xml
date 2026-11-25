@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Sir Pixel</string>
+    <string name="title_activity_main">Sir Pixel</string>
+    <string name="package_name">com.gaushik.desktopassistant</string>
+    <string name="custom_url_scheme">com.gaushik.desktopassistant</string>
+</resources>

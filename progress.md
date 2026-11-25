@@ -16,22 +16,30 @@ _Last updated: 2026-11-25_
 - [x] Unit tests (`test/intents.test.mjs`)
 
 ## Phase 2 - Shared UI
-- [ ] Voxel king SVG + animations
-- [ ] Speech bubble, mic button, listening state
-- [ ] Speech provider with typed-command fallback
-- [ ] Platform bridge
+- [~] Voxel king SVG + animations (`pet.js`, `styles.css`)
+- [~] Speech bubble, mic button, listening state (`app.js`)
+- [~] Speech provider with typed-command fallback (`speech.js`)
+- [~] Platform bridge (`platform.js`)
 
 ## Phase 3 - Desktop (Windows + Linux)
-- [ ] Electron transparent overlay, tray, global hotkey
-- [ ] Safe app launcher
+- [~] Electron transparent overlay, tray, global hotkey (`electron/main.js`)
+- [x] Safe app launcher + tests (`electron/launcher.js`)
 
 ## Phase 4 - Android
-- [ ] Capacitor project + permissions
+- [x] Capacitor project generated (`android/`), `npx cap sync` succeeds
+- [x] RECORD_AUDIO permission + `<queries>` in manifest
+- [~] APK build not run here (no Android SDK in this environment)
 - [ ] Floating overlay service (planned)
 
 ## Phase 5 - Docs & CI
-- [ ] README
-- [ ] GitHub Actions
+- [x] README
+- [~] GitHub Actions workflow written at `docs/ci-workflow.yml` (not yet enabled/run; copy to `.github/workflows/ci.yml`)
 
 ## Log
 - 2026-11-25: repo was empty; core + tests scaffolded.
+- 2026-11-25: added Capacitor Android project, manifest permissions, CI workflow, full README. 17/17 unit tests pass. Electron UI/Android APK not run on real hardware here. pushed to GitHub; workflow file kept in docs/ because the token lacked `workflow` scope.
+
+## Next up
+- Run on real Windows/Linux/Android and fix what breaks
+- Offline speech engine on desktop
+- Android floating overlay

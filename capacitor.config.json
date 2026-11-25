@@ -1,0 +1,9 @@
+{
+  "appId": "com.gaushik.desktopassistant",
+  "appName": "Sir Pixel",
+  "webDir": "src/web",
+  "backgroundColor": "#101418",
+  "android": {
+    "allowMixedContent": false
+  }
+}
