@@ -73,3 +73,53 @@ test('catalog lookups', () => {
   assert.equal(findSite('yt').id, 'youtube');
   assert.equal(findSite('nope'), null);
 });
+
+import { parseDuration, formatDuration, evalMath } from '../src/web/core/utils.js';
+
+test('parseDuration handles digits, words and combos', () => {
+  assert.equal(parseDuration('5 minutes'), 300000);
+  assert.equal(parseDuration('1 hour 30 minutes'), 5400000);
+  assert.equal(parseDuration('ten seconds'), 10000);
+  assert.equal(parseDuration('half an hour'), 1800000);
+  assert.equal(parseDuration('banana'), null);
+  assert.equal(formatDuration(5400000), '1 hour 30 minutes');
+});
+
+test('evalMath is correct and safe', () => {
+  assert.equal(evalMath('12 times 7'), 84);
+  assert.equal(evalMath('(3 + 4) * 2'), 14);
+  assert.equal(evalMath('2 to the power of 10'), 1024);
+  assert.equal(evalMath('10 minus 3 minus 2'), 5);
+  assert.equal(evalMath('-5 + 8'), 3);
+  assert.equal(evalMath('1 divided by 0'), null);
+  assert.equal(evalMath('process.exit()'), null);
+  assert.equal(evalMath('2 +'), null);
+});
+
+test('timer / reminder intents produce timer actions', () => {
+  let r = parse('Set a timer for 5 minutes.');
+  assert.deepEqual(r.action, { kind: 'timer', ms: 300000, label: 'Timer: 5 minutes' });
+  r = parse('set a 10 minute timer');
+  assert.equal(r.action.ms, 600000);
+  r = parse('remind me to stretch in 20 minutes');
+  assert.equal(r.intent, 'reminder');
+  assert.equal(r.action.ms, 1200000);
+  assert.equal(r.action.label, 'Reminder: stretch');
+  assert.equal(parse('set a timer').intent === 'timer-bad' || parse('set a timer').intent === 'unknown', true);
+});
+
+test('notes, math, coin and dice intents', () => {
+  assert.deepEqual(parse('take a note buy milk').action, { kind: 'note', text: 'buy milk' });
+  assert.equal(parse('read my notes').action.kind, 'list-notes');
+  assert.equal(parse("what's 12 times 7").reply, '12 times 7 is 84.');
+  assert.equal(parse('flip a coin', { rng: () => 0.1 }).reply, 'Heads.');
+  assert.equal(parse('roll a dice', { rng: () => 0 }).reply, 'You rolled a 1 (d6).');
+  assert.equal(parse('roll a d20', { rng: () => 0.99 }).reply, 'You rolled a 20 (d20).');
+});
+
+test('unknown app offers a search follow-up; "yes" is a confirm intent', () => {
+  const r = parse('open frobnicator');
+  assert.equal(r.intent, 'unknown-app');
+  assert.equal(r.followUp.url, 'https://www.google.com/search?q=frobnicator');
+  assert.equal(parse('yes').intent, 'confirm');
+});

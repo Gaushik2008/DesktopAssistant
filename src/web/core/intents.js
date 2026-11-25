@@ -4,9 +4,14 @@
 // action shapes (executed by a platform bridge, see platform.js):
 //   { kind: 'open-url', url }
 //   { kind: 'open-app', appId, query? }   // app resolved from catalog.js
+//   { kind: 'timer', ms, label }           // renderer schedules a reminder
+//   { kind: 'note', text }                 // renderer saves a note
+//   { kind: 'list-notes' } | { kind: 'clear-notes' }
 //   null                                   // reply only
+// A result may also carry `followUp` (an action to run if the user says "yes").
 
 import { findApp, findSite, SITES, APPS } from './catalog.js';
+import { parseDuration, formatDuration, evalMath } from './utils.js';
 import { GREETINGS, THANKS, JOKES, HELP_TEXT, pick } from './personality.js';
 
 const WAKE = /^(?:hey|hi|hello|ok|okay)?\s*(?:sir pixel|assistant|king|pixel)[,\s]+/i;
@@ -79,6 +84,11 @@ export function parse(text, ctx = {}) {
     return { intent: 'cancel', reply: 'As you wish.', action: null };
   }
 
+  // --- bare confirmations are resolved by the UI using the previous followUp ----
+  if (/^(?:yes|yeah|yep|sure|ok|okay|go ahead|do it)$/.test(lower)) {
+    return { intent: 'confirm', reply: '', action: null };
+  }
+
   // --- music: "play X [by Y] [on spotify|youtube]" -------------------------
   if ((m = lower.match(/^play\s+(.+?)\s+(?:on|in|using|with)\s+(spotify|youtube|you tube)$/))) {
     return playMusic(m[1], m[2].startsWith('you') ? 'youtube' : 'spotify');
@@ -101,7 +111,44 @@ export function parse(text, ctx = {}) {
       intent: 'unknown-app',
       reply: `I don't know an app called "${name}" yet. Want me to search for it?`,
       action: null,
+      followUp: { kind: 'open-url', url: `${SITES.google.search}${q(name)}` },
     };
+  }
+
+
+  // --- timers / reminders --------------------------------------------------
+  if ((m = lower.match(/^remind me (?:to|about)\s+(.+?)\s+in\s+(.+)$/)) && parseDuration(m[2])) {
+    const ms = parseDuration(m[2]);
+    return { intent: 'reminder', reply: `Okay, I'll remind you to ${m[1]} in ${formatDuration(ms)}.`, action: { kind: 'timer', ms, label: `Reminder: ${m[1]}` } };
+  }
+  if ((m = lower.match(/^remind me in\s+(.+?)\s+(?:to|about)\s+(.+)$/)) && parseDuration(m[1])) {
+    const ms = parseDuration(m[1]);
+    return { intent: 'reminder', reply: `Okay, I'll remind you to ${m[2]} in ${formatDuration(ms)}.`, action: { kind: 'timer', ms, label: `Reminder: ${m[2]}` } };
+  }
+  if ((m = lower.match(/^(?:set|start)\s+(?:a|an)?\s*(?:timer|alarm)\s+(?:for|of)\s+(.+)$/)) ||
+      (m = lower.match(/^(?:set|start)\s+(?:a|an)?\s*(.+?)\s+(?:timer|alarm)$/)) ||
+      (m = lower.match(/^timer\s+(?:for\s+)?(.+)$/))) {
+    const ms = parseDuration(m[1]);
+    if (ms) return { intent: 'timer', reply: `Timer set for ${formatDuration(ms)}.`, action: { kind: 'timer', ms, label: `Timer: ${formatDuration(ms)}` } };
+    return { intent: 'timer-bad', reply: 'For how long? Try "set a timer for 5 minutes".', action: null };
+  }
+
+  // --- notes ---------------------------------------------------------------
+  if ((m = lower.match(/^(?:take a note|note|make a note|remember)(?: that)?[:\s]+(.+)$/))) {
+    return { intent: 'note', reply: 'Noted.', action: { kind: 'note', text: m[1] } };
+  }
+  if (/^(?:read|show|list|what are) (?:my )?notes$/.test(lower)) return { intent: 'notes', reply: '', action: { kind: 'list-notes' } };
+  if (/^(?:clear|delete) (?:all )?(?:my )?notes$/.test(lower)) return { intent: 'notes-clear', reply: 'All notes cleared.', action: { kind: 'clear-notes' } };
+
+  // --- maths, dice, coin ---------------------------------------------------
+  if ((m = lower.match(/^(?:what(?:'s| is)|calculate|compute|how much is)\s+(.+)$/)) && /\d/.test(m[1])) {
+    const v = evalMath(m[1]);
+    if (v !== null) return { intent: 'math', reply: `${m[1].replace(/\s+/g, ' ')} is ${v}.`, action: null };
+  }
+  if (/^(?:flip|toss) a coin$/.test(lower)) return { intent: 'coin', reply: rng() < 0.5 ? 'Heads.' : 'Tails.', action: null };
+  if ((m = lower.match(/^roll (?:a|an)?\s*(?:d|die|dice)?\s*(\d+)?$/)) || /^roll (?:a )?(?:die|dice)$/.test(lower)) {
+    const sides = Math.min(Math.max(parseInt((m && m[1]) || '6', 10), 2), 1000);
+    return { intent: 'dice', reply: `You rolled a ${1 + Math.floor(rng() * sides)} (d${sides}).`, action: null };
   }
 
   // --- search --------------------------------------------------------------

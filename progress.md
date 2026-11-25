@@ -43,3 +43,4 @@ _Last updated: 2026-11-25_
 - Run on real Windows/Linux/Android and fix what breaks
 - Offline speech engine on desktop
 - Android floating overlay
+- 2026-11-25 (session 2): new commands - timers, reminders, notes, safe calculator, coin/dice, "yes" follow-up after unknown app. New files: `src/web/core/utils.js`, `src/web/local-actions.js`, `test/local-actions.test.mjs`. 25/25 tests pass. UI wiring in `app.js` syntax-checked but not exercised in a real browser/Electron window.

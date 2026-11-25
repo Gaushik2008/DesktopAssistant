@@ -54,6 +54,12 @@ You can optionally prefix commands with a wake phrase such as *"Hey Sir Pixel, �
 | "Search *rust lifetimes* on GitHub / YouTube / Wikipedia / Reddit" | Site-specific search |
 | "Open example.com" | Opens any valid domain over https |
 | "What time is it?" / "What's the date?" | Answers in the bubble |
+| "Set a timer for 5 minutes" / "set a 10 minute timer" | Timer with sound + notification when it ends |
+| "Remind me to stretch in 20 minutes" | Reminder bubble (and notification if allowed) |
+| "Take a note buy milk" / "read my notes" / "clear my notes" | Notes saved locally on the device (up to 50) |
+| "What is 12 times 7?" / "calculate (3 + 4) * 2" | Safe calculator (no `eval`) |
+| "Flip a coin" / "roll a dice" / "roll a d20" | Random results |
+| "Open frobnicator" → "yes" | Unknown app? Say "yes" and it searches Google for it |
 | "Tell me a joke", "Hello", "Thanks", "Help" | Chit-chat |
 | "Cancel" / "Never mind" | Stops |
 
@@ -66,7 +72,9 @@ Add more in [`src/web/core/catalog.js`](src/web/core/catalog.js).
 ┌──────────────────────────── src/web (shared) ────────────────────────────┐
 │  index.html · styles.css · app.js (UI state machine)                      │
 │  pet.js (SVG mascot) · speech.js (STT providers) · platform.js (bridge)   │
-│  core/  intents.js (parser) · catalog.js (sites/apps) · personality.js    │
+│  local-actions.js (timers, notes)                                         │
+│  core/  intents.js (parser) · utils.js (duration, math) · catalog.js ·    │
+│         personality.js                                                    │
 └───────────────┬───────────────────────────────────────┬───────────────────┘
                 │                                       │
      ┌──────────▼──────────┐                 ┌──────────▼──────────┐
@@ -178,7 +186,7 @@ Build each desktop installer on its own OS (or use the CI workflow).
 ```bash
 npm test
 ```
-Runs the intent-parser and launcher suites with Node's built-in test runner (no extra dependencies).
+Runs the intent-parser, utils, local-actions and launcher suites with Node's built-in test runner (no extra dependencies).
 
 ## CI
 To enable it, copy the file to `.github/workflows/ci.yml` (pushing workflow files needs a token with the `workflow` scope or the GitHub web UI).
@@ -197,7 +205,8 @@ To enable it, copy the file to `.github/workflows/ci.yml` (pushing workflow file
 - [ ] Android floating overlay service
 - [ ] Wake-word ("Hey Sir Pixel") detection
 - [ ] Settings panel (voice language, hotkeys, start on login)
-- [ ] More commands: volume, timers, reminders, notes
+- [x] Timers, reminders, notes, calculator, dice/coin
+- [ ] More commands: volume control, weather
 - [ ] Optional LLM-backed fallback for unrecognised requests
 - [ ] Code signing and auto-update
 

@@ -2,6 +2,7 @@ import { mountPet } from './pet.js';
 import { platform } from './platform.js';
 import { parse } from './core/intents.js';
 import { IDLE_QUIPS, pick } from './core/personality.js';
+import { runLocalAction } from './local-actions.js';
 import { listen, cancelListening, speechSupported } from './speech.js';
 
 const $ = (id) => document.getElementById(id);
@@ -47,11 +48,35 @@ function scheduleIdle() {
 }
 
 // ------------------------------------------------------------- commands ----
+let pendingFollowUp = null;
+
 async function handleTranscript(text) {
   setState('thinking');
-  const res = parse(text);
+  let res = parse(text);
+
+  // "yes" after "Want me to search for it?" runs the stored follow-up.
+  if (res.intent === 'confirm') {
+    if (pendingFollowUp) {
+      res = { intent: 'follow-up', reply: 'On it.', action: pendingFollowUp };
+      pendingFollowUp = null;
+    } else {
+      res = { intent: 'confirm', reply: "Yes to what? I'm not waiting on anything.", action: null };
+    }
+  } else {
+    pendingFollowUp = res.followUp || null;
+  }
+
+  let reply = res.reply;
+  if (res.action) {
+    const local = runLocalAction(res.action, { onAlarm: (msg) => say(msg, { ms: 12000 }) });
+    if (local.handled) {
+      if (local.reply) reply = local.reply;
+      res = { ...res, action: null };
+    }
+  }
+
   const heard = res.intent === 'empty' ? '' : `"${text.replace(/[.!?]+$/, '')}." `;
-  say(heard + res.reply, { ms: 5500 });
+  say(heard + reply, { ms: 5500 });
   if (res.action) {
     const out = await platform.execute(res.action);
     if (!out.ok) say(out.message || "I couldn't do that.", { ms: 5000 });
