@@ -11,6 +11,7 @@
 // Android (Capacitor) uses Capacitor.Plugins.* globals - no bundler needed.
 
 import { isSafeUrl, APPS } from './core/catalog.js';
+import { PRESETS, validateSettings, buildRequest, extractReply, friendlyHttpError } from './core/llm.js';
 
 const noop = () => {};
 
@@ -28,6 +29,38 @@ const desktop = () => ({
   setInteractive: window.assistant.setInteractive,
   moveBy: window.assistant.moveBy,
   nativeSpeech: false,
+  llm: window.assistant.llm,
+});
+
+// Android: settings live in the app's private WebView storage; HTTP goes through the native
+// CapacitorHttp plugin (no CORS, and it can reach a PC on your LAN running Ollama/LM Studio).
+const LLM_KEY = 'sirpixel.llm';
+const llmDefaults = { provider: 'nvidia', baseUrl: PRESETS.nvidia.baseUrl, model: PRESETS.nvidia.model };
+const readLlm = () => { try { return { ...llmDefaults, ...JSON.parse(localStorage.getItem(LLM_KEY) || '{}') }; } catch { return { ...llmDefaults }; } };
+const androidLlm = () => ({
+  async getSettings() { const d = readLlm(); return { provider: d.provider, baseUrl: d.baseUrl, model: d.model, hasKey: Boolean(d.apiKey) }; },
+  async saveSettings(input) {
+    const cur = readLlm();
+    const next = { provider: input.provider || cur.provider, baseUrl: String(input.baseUrl ?? cur.baseUrl).trim(), model: String(input.model ?? cur.model).trim(), apiKey: cur.apiKey };
+    if (next.baseUrl !== cur.baseUrl && !input.apiKey) next.apiKey = undefined; // never re-send a key to a different server
+    if (typeof input.apiKey === 'string' && input.apiKey.trim()) next.apiKey = input.apiKey.trim();
+    if (input.clearKey) next.apiKey = undefined;
+    try { localStorage.setItem(LLM_KEY, JSON.stringify(next)); } catch { /* ignore */ }
+    return this.getSettings();
+  },
+  async chat(history, text) {
+    const settings = readLlm();
+    const v = validateSettings(settings);
+    if (!v.ok) return { ok: false, message: v.error };
+    const req = buildRequest(settings, history, String(text).slice(0, 2000));
+    const host = new URL(req.url).host;
+    try {
+      const res = await window.Capacitor.Plugins.CapacitorHttp.request({ url: req.url, method: 'POST', headers: req.headers, data: req.body, connectTimeout: 15000, readTimeout: 30000 });
+      if (res.status < 200 || res.status >= 300) return { ok: false, message: friendlyHttpError(res.status, host) };
+      const reply = extractReply(typeof res.data === 'string' ? JSON.parse(res.data) : res.data);
+      return reply ? { ok: true, reply } : { ok: false, message: 'The AI sent an empty answer.' };
+    } catch { return { ok: false, message: `Couldn't reach ${host}. Is it running / are you online?` }; }
+  },
 });
 
 const android = () => {
@@ -35,6 +68,7 @@ const android = () => {
   return {
     name: 'android',
     nativeSpeech: true,
+    llm: androidLlm(),
     async execute(action) {
       if (!action) return { ok: true };
       try {
@@ -72,6 +106,7 @@ const android = () => {
 const web = () => ({
   name: 'web',
   nativeSpeech: false,
+  llm: null, // AI chat needs the desktop or Android app (browser CORS/CSP)
   async execute(action) {
     if (!action) return { ok: true };
     let url = null;

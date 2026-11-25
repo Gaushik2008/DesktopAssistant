@@ -17,8 +17,16 @@ const { window } = dom;
 
 const executed = [];
 const hooks = {};
+const llmState = { provider: 'ollama', baseUrl: 'http://localhost:11434/v1', model: 'qwen3:4b', hasKey: false };
+const llmCalls = { chat: [], saved: [] };
+let llmChatResult = { ok: true, reply: 'Because air scatters blue light.' };
 window.assistant = {
   platform: 'linux',
+  llm: {
+    getSettings: async () => ({ ...llmState }),
+    saveSettings: async (input) => { llmCalls.saved.push(input); Object.assign(llmState, { provider: input.provider, baseUrl: input.baseUrl, model: input.model }); if (input.apiKey) llmState.hasKey = true; return { ...llmState }; },
+    chat: async (history, text) => { llmCalls.chat.push({ history: [...history], text }); return llmChatResult; },
+  },
   execute: async (a) => { executed.push(a); return { ok: true }; },
   onToggleListen: (cb) => { hooks.toggle = cb; },
   onTypeCommand: (cb) => { hooks.type = cb; },
@@ -100,4 +108,75 @@ test('mic click without speech support opens the typed fallback; Esc closes it',
 test('bubble close button hides the bubble', () => {
   $('bubble-close').click();
   assert.equal($('bubble').classList.contains('hidden'), true);
+});
+
+// ------------------------------------------------------------ AI chat ------
+test('unmatched sentence goes to the AI and the reply is shown (no command echo)', async () => {
+  executed.length = 0; llmCalls.chat.length = 0;
+  await typeCommand('why is the sky blue');
+  assert.equal(llmCalls.chat.length, 1);
+  assert.equal(llmCalls.chat[0].text, 'why is the sky blue');
+  assert.equal(bubbleText(), 'Because air scatters blue light.');
+  assert.deepEqual(executed, [], 'AI replies are never executed');
+});
+
+test('conversation history is sent on the next turn', async () => {
+  await typeCommand('and why is sunset red');
+  const last = llmCalls.chat.at(-1);
+  assert.deepEqual(last.history.map((m) => m.role), ['user', 'assistant']);
+  assert.equal(last.history[0].content, 'why is the sky blue');
+});
+
+test('known commands never hit the AI', async () => {
+  const n = llmCalls.chat.length;
+  await typeCommand('open github');
+  await typeCommand('what time is it');
+  assert.equal(llmCalls.chat.length, n);
+});
+
+test('AI errors are shown as friendly text', async () => {
+  llmChatResult = { ok: false, message: 'The API key was rejected. Check it in settings.' };
+  await typeCommand('tell me about volcanoes');
+  assert.equal(bubbleText(), 'The API key was rejected. Check it in settings.');
+  llmChatResult = { ok: true, reply: 'Because air scatters blue light.' };
+});
+
+test('NVIDIA without a key opens settings instead of calling the AI', async () => {
+  Object.assign(llmState, { provider: 'nvidia', baseUrl: 'https://integrate.api.nvidia.com/v1', model: 'm', hasKey: false });
+  const n = llmCalls.chat.length;
+  await typeCommand('tell me a story about dragons');
+  assert.equal(llmCalls.chat.length, n);
+  await sleep(30);
+  assert.equal($('settings').classList.contains('hidden'), false);
+  assert.match(bubbleText(), /set up/i);
+});
+
+test('settings: picking a preset fills fields; Save & test saves the key and tests the connection', async () => {
+  const sel = $('llm-provider');
+  sel.value = 'ollama';
+  sel.dispatchEvent(new window.Event('change', { bubbles: true }));
+  assert.equal($('llm-url').value, 'http://localhost:11434/v1');
+  assert.equal($('llm-model').value, 'qwen3:4b');
+  $('llm-model').value = 'qwen3:4b-instruct';
+  $('llm-key').value = 'secret-key';
+  llmCalls.saved.length = 0; llmCalls.chat.length = 0;
+  $('settings').dispatchEvent(new window.Event('submit', { cancelable: true, bubbles: true }));
+  await sleep(50);
+  assert.equal(llmCalls.saved.length, 1);
+  assert.equal(llmCalls.saved[0].model, 'qwen3:4b-instruct');
+  assert.equal(llmCalls.saved[0].apiKey, 'secret-key');
+  assert.equal($('llm-key').value, '', 'key field is cleared after saving');
+  assert.deepEqual(llmCalls.chat[0].history, [], 'test call starts a fresh conversation');
+  assert.match($('llm-status').textContent, /^Connected:/);
+  assert.equal($('llm-status').className.includes('ok'), true);
+});
+
+test('settings: a failed test shows the error; Esc closes the panel', async () => {
+  llmChatResult = { ok: false, message: "Couldn't reach localhost:11434. Is it running / are you online?" };
+  $('settings').dispatchEvent(new window.Event('submit', { cancelable: true, bubbles: true }));
+  await sleep(50);
+  assert.match($('llm-status').textContent, /Couldn't reach/);
+  assert.equal($('llm-status').className.includes('err'), true);
+  window.document.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+  assert.equal($('settings').classList.contains('hidden'), true);
 });

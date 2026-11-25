@@ -66,6 +66,25 @@ You can optionally prefix commands with a wake phrase such as *"Hey Sir Pixel, �
 Known sites: YouTube, Google, Gmail, GitHub, Maps, Netflix, Reddit, X, WhatsApp Web, Wikipedia, Claude, ChatGPT, Amazon, Discord.
 Add more in [`src/web/core/catalog.js`](src/web/core/catalog.js).
 
+## AI chat (talk about anything)
+Commands stay instant and offline. When a sentence matches **no** command, Sir Pixel sends it to an AI and shows the answer in the bubble (short conversation memory, last 12 messages). The AI's reply is only ever **displayed**, never executed as a command.
+
+Click the **⚙ gear** next to the mic to set it up. Works with any OpenAI-compatible `/chat/completions` endpoint:
+
+| Provider | Base URL | Model (editable) | Key |
+|---|---|---|---|
+| **NVIDIA API** | `https://integrate.api.nvidia.com/v1` | `meta/llama-3.1-8b-instruct` (use any model on build.nvidia.com) | `nvapi-...` from build.nvidia.com |
+| **Local – Ollama (Qwen)** | `http://localhost:11434/v1` | `qwen3:4b` – run `ollama list` for your exact tag | none |
+| **Local – LM Studio** | `http://localhost:1234/v1` | the model id shown in LM Studio | none |
+| Custom | any `https://` URL (plain `http://` only for localhost / LAN) | – | optional |
+
+Local Qwen quick start: `ollama pull qwen3:4b`, make sure Ollama is running, then choose **Local – Ollama** in the gear panel and press **Save & test**.
+
+- **Desktop:** requests are made by the Electron main process; the API key is stored **encrypted** (Electron `safeStorage`) in the app's user-data folder and is **never exposed to the UI**. Changing the Base URL without entering a new key discards the saved key, so it can't be redirected to another server.
+- **Android:** requests use the native HTTP plugin (no CORS). Settings, including the key, are kept in the app's private storage. `localhost` on a phone is the phone itself – to use a local model, run Ollama on your PC with `OLLAMA_HOST=0.0.0.0` and enter `http://<pc-lan-ip>:11434/v1`.
+- Qwen3 "thinking" output is stripped automatically (`<think>…</think>`).
+- Not available in the plain browser preview (`npm run web`).
+
 ## Architecture
 
 ```
@@ -74,7 +93,7 @@ Add more in [`src/web/core/catalog.js`](src/web/core/catalog.js).
 │  pet.js (SVG mascot) · speech.js (STT providers) · platform.js (bridge)   │
 │  local-actions.js (timers, notes)                                         │
 │  core/  intents.js (parser) · utils.js (duration, math) · catalog.js ·    │
-│         personality.js                                                    │
+│         llm.js (AI chat helpers) · personality.js                        │
 └───────────────┬───────────────────────────────────────┬───────────────────┘
                 │                                       │
      ┌──────────▼──────────┐                 ┌──────────▼──────────┐
@@ -188,7 +207,8 @@ npm test
 ```
 Runs, with Node's built-in test runner:
 - **Unit tests** – intent parser, utils (duration/maths), local actions, launcher.
-- **UI integration tests** (`test/ui.test.mjs`) – loads the real `index.html` + `app.js` in **jsdom** with a stubbed desktop bridge and drives it through the typed-command box (open site, Spotify, maths/notes, "yes" follow-up, timer firing, mic fallback, Esc, dismiss).
+- **LLM tests** – request building, response cleaning, error mapping, timeouts, encrypted key store.
+- **UI integration tests** (`test/ui.test.mjs`) – also covers the AI chat flow and settings panel; loads the real `index.html` + `app.js` in **jsdom** with a stubbed desktop bridge and drives it through the typed-command box (open site, Spotify, maths/notes, "yes" follow-up, timer firing, mic fallback, Esc, dismiss).
 
 jsdom does not render pixels or run Electron/Android; real-browser end-to-end tests are on the roadmap.
 
@@ -213,7 +233,9 @@ To enable it, copy the file to `.github/workflows/ci.yml` (pushing workflow file
 - [ ] Settings panel (voice language, hotkeys, start on login)
 - [x] Timers, reminders, notes, calculator, dice/coin
 - [ ] More commands: volume control, weather
-- [ ] Optional LLM-backed fallback for unrecognised requests
+- [x] LLM fallback for unrecognised requests (NVIDIA API, Ollama/Qwen, LM Studio)
+- [ ] Voice replies (text-to-speech) and streaming answers
+- [ ] Model auto-detect in the settings panel
 - [ ] Code signing and auto-update
 
 ## Contributing & license

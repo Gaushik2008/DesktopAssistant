@@ -3,10 +3,11 @@
 // A small transparent, frameless, always-on-top window parked at the bottom-right
 // of the work area, with a tray icon and global hotkeys.
 
-const { app, BrowserWindow, Tray, Menu, globalShortcut, ipcMain, screen, shell, nativeImage } = require('electron');
+const { app, BrowserWindow, Tray, Menu, globalShortcut, ipcMain, screen, shell, nativeImage, safeStorage } = require('electron');
 const path = require('path');
 const { spawn } = require('child_process');
 const { launchApp, safeOpenUrl } = require('./launcher');
+const llm = require('./llm');
 
 const DEV = process.argv.includes('--dev');
 const PLATFORM = process.platform === 'win32' ? 'windows' : process.platform === 'darwin' ? 'macos' : 'linux';
@@ -114,6 +115,17 @@ ipcMain.on('move-by', (e, dx, dy) => {
   if (!w || !Number.isFinite(dx) || !Number.isFinite(dy)) return;
   const [x, y] = w.getPosition();
   w.setPosition(Math.round(x + dx), Math.round(y + dy));
+});
+
+// ---- AI chat fallback (key stays in this process) ----
+let llmStore;
+const store = () => (llmStore ||= llm.createStore({ file: path.join(app.getPath('userData'), 'llm.json'), safeStorage }));
+const isObj = (v) => v && typeof v === 'object' && !Array.isArray(v);
+ipcMain.handle('llm:get-settings', () => store().get());
+ipcMain.handle('llm:save-settings', (_e, input) => (isObj(input) ? store().save(input) : store().get()));
+ipcMain.handle('llm:chat', (_e, req) => {
+  if (!isObj(req)) return { ok: false, message: 'Bad request.' };
+  return llm.chat({ settings: store().getRaw(), history: Array.isArray(req.history) ? req.history : [], text: req.text });
 });
 
 ipcMain.handle('platform', () => PLATFORM);

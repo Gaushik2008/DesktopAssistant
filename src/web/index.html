@@ -23,9 +23,31 @@
       <input id="typeinput" type="text" placeholder="Type a command..." aria-label="Type a command" />
     </form>
 
+    <!-- AI settings -->
+    <form id="settings" class="settings hidden" autocomplete="off">
+      <h2>AI chat</h2>
+      <label>Provider
+        <select id="llm-provider">
+          <option value="nvidia">NVIDIA API</option>
+          <option value="ollama">Local - Ollama (Qwen)</option>
+          <option value="lmstudio">Local - LM Studio</option>
+          <option value="custom">Custom (OpenAI-compatible)</option>
+        </select>
+      </label>
+      <label>Base URL <input id="llm-url" type="text" spellcheck="false" /></label>
+      <label>Model <input id="llm-model" type="text" spellcheck="false" /></label>
+      <label>API key <input id="llm-key" type="password" spellcheck="false" autocomplete="off" /></label>
+      <p id="llm-status" class="status" role="status"></p>
+      <div class="row">
+        <button type="submit" class="btn">Save &amp; test</button>
+        <button type="button" id="llm-close" class="btn ghost">Close</button>
+      </div>
+    </form>
+
     <!-- the pet -->
     <div id="pet-wrap">
       <div id="pet" role="img" aria-label="Sir Pixel, a voxel king on a grass block" tabindex="0"></div>
+      <button id="gear" class="gear" aria-label="AI settings" title="AI settings">&#9881;</button>
       <button id="mic" class="mic" aria-label="Talk to Sir Pixel" title="Talk (Ctrl+Alt+Space)">
         <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
           <path fill="currentColor" d="M12 14a3 3 0 0 0 3-3V5a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-3.08A7 7 0 0 0 19 11z"/>
