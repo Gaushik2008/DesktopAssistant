@@ -29,13 +29,32 @@
   "devDependencies": {
     "@capacitor/cli": "^7.0.0",
     "electron": "^33.0.0",
-    "electron-builder": "^25.0.0"
+    "electron-builder": "^25.0.0",
+    "jsdom": "^31.0.1"
   },
   "build": {
     "appId": "com.gaushik.desktopassistant",
     "productName": "Sir Pixel",
-    "files": ["electron/**", "src/web/**", "assets/**", "package.json"],
-    "win": { "target": ["nsis", "portable"], "icon": "assets/icon.png" },
-    "linux": { "target": ["AppImage", "deb"], "category": "Utility", "icon": "assets/icon.png" }
+    "files": [
+      "electron/**",
+      "src/web/**",
+      "assets/**",
+      "package.json"
+    ],
+    "win": {
+      "target": [
+        "nsis",
+        "portable"
+      ],
+      "icon": "assets/icon.png"
+    },
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb"
+      ],
+      "category": "Utility",
+      "icon": "assets/icon.png"
+    }
   }
 }

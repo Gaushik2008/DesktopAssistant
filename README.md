@@ -186,7 +186,11 @@ Build each desktop installer on its own OS (or use the CI workflow).
 ```bash
 npm test
 ```
-Runs the intent-parser, utils, local-actions and launcher suites with Node's built-in test runner (no extra dependencies).
+Runs, with Node's built-in test runner:
+- **Unit tests** – intent parser, utils (duration/maths), local actions, launcher.
+- **UI integration tests** (`test/ui.test.mjs`) – loads the real `index.html` + `app.js` in **jsdom** with a stubbed desktop bridge and drives it through the typed-command box (open site, Spotify, maths/notes, "yes" follow-up, timer firing, mic fallback, Esc, dismiss).
+
+jsdom does not render pixels or run Electron/Android; real-browser end-to-end tests are on the roadmap.
 
 ## CI
 To enable it, copy the file to `.github/workflows/ci.yml` (pushing workflow files needs a token with the `workflow` scope or the GitHub web UI).
@@ -201,6 +205,8 @@ To enable it, copy the file to `.github/workflows/ci.yml` (pushing workflow file
 - macOS works best-effort but is not an official target.
 
 ## Roadmap
+- [x] jsdom UI integration tests
+- [ ] Real-browser (Playwright) end-to-end tests in CI
 - [ ] Offline speech recognition on desktop (Vosk / whisper.cpp)
 - [ ] Android floating overlay service
 - [ ] Wake-word ("Hey Sir Pixel") detection
