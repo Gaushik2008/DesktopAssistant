@@ -8,7 +8,7 @@ const path = require('path');
 let corePromise;
 const core = () => (corePromise ||= import('../src/web/core/llm.js'));
 
-const DEFAULTS = { provider: 'nvidia', baseUrl: 'https://integrate.api.nvidia.com/v1', model: 'meta/llama-3.1-8b-instruct' };
+const DEFAULTS = { provider: 'gemini', baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai', model: 'gemini-flash-latest' };
 
 function createStore({ file, safeStorage }) {
   const read = () => { try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return {}; } };
@@ -77,4 +77,26 @@ async function chat({ settings, history, text, fetchImpl = globalThis.fetch, tim
   }
 }
 
-module.exports = { createStore, chat, DEFAULTS };
+/** Speech-to-text via Gemini. Runs in the main process so the key never reaches the renderer. */
+async function transcribe({ settings, base64, mime = 'audio/wav', fetchImpl = globalThis.fetch, timeoutMs = 30000 }) {
+  const { buildTranscribeRequest, extractTranscript, sttErrorFromStatus, checkSttReady } = await core();
+  const bad = checkSttReady(settings, base64);
+  if (bad) return bad;
+  const req = buildTranscribeRequest(settings, base64, mime === 'audio/wav' ? mime : 'audio/wav');
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    const res = await fetchImpl(req.url, { method: 'POST', headers: req.headers, body: JSON.stringify(req.body), signal: ctrl.signal });
+    if (!res.ok) return { ok: false, ...sttErrorFromStatus(res.status) };
+    const text = extractTranscript(await res.json());
+    if (text === null) return { ok: false, code: 'error', message: 'Gemini sent an unreadable answer.' };
+    return text ? { ok: true, text } : { ok: false, code: 'no-speech', message: "I didn't catch that." };
+  } catch (e) {
+    const timedOut = e && e.name === 'AbortError';
+    return { ok: false, code: 'network', message: timedOut ? 'Gemini took too long to answer.' : "Couldn't reach Gemini. Are you online?" };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+module.exports = { createStore, chat, transcribe, DEFAULTS };

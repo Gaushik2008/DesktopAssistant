@@ -1,15 +1,16 @@
-// Speech-to-text provider with graceful fallback.
+// Speech-to-text, in priority order:
+//   1. Gemini   - record mic -> 16 kHz WAV -> platform.stt.transcribe (desktop main process /
+//                 Android native HTTP; the API key never touches the renderer on desktop)
+//   2. Android native recognizer (Capacitor) - fallback when Gemini isn't available
+//   3. Web Speech API - real Chrome/Edge only. It does NOT work in Electron (Chromium there has no
+//      Google speech keys) - that was the old "voice recognition is unavailable here" bug.
 //
-// listen() resolves with a transcript string, or rejects with Error whose
-// `code` is one of: 'unsupported' | 'cancelled' | 'no-speech' | 'denied' | 'network' | 'error'.
-// The UI turns 'unsupported' / 'network' / 'denied' into the typed-command box.
-//
-// Providers, in priority order:
-//   1. Capacitor native recognizer (Android)      @capacitor-community/speech-recognition
-//   2. Web Speech API (Chromium browsers)         webkitSpeechRecognition
-//      NOTE: stock Electron ships Web Speech without Google keys, so it usually
-//      fails with 'network' -> typed fallback. A local engine (Vosk/whisper.cpp)
-//      is on the roadmap.
+// listen({onLevel}) resolves with the transcript, or rejects with Error.code:
+//   'nokey' | 'nogemini' | 'badkey' | 'badmodel' | 'quota' | 'network' | 'denied' | 'no-mic' |
+//   'no-speech' | 'cancelled' | 'unsupported' | 'error'
+
+import { platform } from './platform.js';
+import { record } from './recorder.js';
 
 function err(code, message) {
   const e = new Error(message || code);
@@ -17,34 +18,76 @@ function err(code, message) {
   return e;
 }
 
-let activeCancel = null;
+let current = null; // { stop(), cancel() }
 
-export function cancelListening() {
-  if (activeCancel) activeCancel();
-}
+export function cancelListening() { if (current) current.cancel(); }
+export function stopListening() { if (current) current.stop(); }
 
+const capPlugin = () => window.Capacitor?.Plugins?.SpeechRecognition;
+const isNative = () => Boolean(window.Capacitor?.isNativePlatform?.());
+const webSpeech = () => (navigator.userAgent.includes('Electron') ? null : window.SpeechRecognition || window.webkitSpeechRecognition);
+const canRecord = () => Boolean(navigator.mediaDevices?.getUserMedia);
+
+/** True when at least one speech path exists (Gemini pipeline counts: it asks for a key if missing). */
 export function speechSupported() {
-  const cap = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.SpeechRecognition;
-  return Boolean(cap || window.SpeechRecognition || window.webkitSpeechRecognition);
+  return Boolean((platform.stt && canRecord()) || (isNative() && capPlugin()) || webSpeech());
 }
 
-export async function listen({ lang = 'en-US' } = {}) {
-  const cap = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.SpeechRecognition;
-  if (cap && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform()) return listenNative(cap, lang);
-  const Ctor = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (!Ctor) throw err('unsupported', 'Speech recognition is not available here.');
-  return listenWeb(Ctor, lang);
+export async function listen({ onLevel = () => {}, lang = 'en-US' } = {}) {
+  if (platform.stt && canRecord()) {
+    try {
+      return await listenGemini(onLevel);
+    } catch (e) {
+      // Gemini unusable on a phone -> fall back to the on-device recognizer instead of failing.
+      const gemini = ['nokey', 'nogemini', 'badkey', 'badmodel', 'network'].includes(e.code);
+      if (!(gemini && isNative() && capPlugin())) throw e;
+    }
+  }
+  if (isNative() && capPlugin()) return listenNative(capPlugin(), lang);
+  const Ctor = webSpeech();
+  if (Ctor) return listenWeb(Ctor, lang);
+  throw err('unsupported', 'Speech recognition is not available here.');
+}
+
+async function listenGemini(onLevel) {
+  const rec = record({ onLevel });
+  let cancelled = false;
+  current = { stop: rec.stop, cancel: () => { cancelled = true; rec.cancel(); } };
+  try {
+    const clip = await rec.result;
+    if (cancelled) throw err('cancelled');
+    const out = await platform.stt.transcribe(clip.base64, clip.mime);
+    if (cancelled) throw err('cancelled');
+    if (!out || !out.ok) throw err((out && out.code) || 'error', out && out.message);
+    return out.text;
+  } finally {
+    current = null;
+  }
+}
+
+async function listenNative(cap, lang) {
+  const perm = await cap.requestPermissions();
+  if (perm.speechRecognition !== 'granted') throw err('denied');
+  let cancelled = false;
+  current = { stop: () => cap.stop().catch(() => {}), cancel: () => { cancelled = true; cap.stop().catch(() => {}); } };
+  try {
+    const res = await cap.start({ language: lang, maxResults: 1, partialResults: false, popup: false });
+    if (cancelled) throw err('cancelled');
+    const text = res?.matches?.[0];
+    if (!text) throw err('no-speech');
+    return text;
+  } finally {
+    current = null;
+  }
 }
 
 function listenWeb(Ctor, lang) {
   return new Promise((resolve, reject) => {
     const rec = new Ctor();
-    rec.lang = lang;
-    rec.interimResults = false;
-    rec.maxAlternatives = 1;
+    rec.lang = lang; rec.interimResults = false; rec.maxAlternatives = 1;
     let done = false;
-    const finish = (fn, v) => { if (!done) { done = true; activeCancel = null; fn(v); } };
-    activeCancel = () => { try { rec.abort(); } catch { /* ignore */ } finish(reject, err('cancelled')); };
+    const finish = (fn, v) => { if (!done) { done = true; current = null; fn(v); } };
+    current = { stop: () => rec.stop(), cancel: () => { try { rec.abort(); } catch { /* ignore */ } finish(reject, err('cancelled')); } };
     rec.onresult = (e) => finish(resolve, e.results[0][0].transcript);
     rec.onerror = (e) => {
       const map = { 'no-speech': 'no-speech', 'not-allowed': 'denied', 'service-not-allowed': 'denied', network: 'network', aborted: 'cancelled' };
@@ -53,20 +96,4 @@ function listenWeb(Ctor, lang) {
     rec.onend = () => finish(reject, err('no-speech'));
     try { rec.start(); } catch (e) { finish(reject, err('error', String(e))); }
   });
-}
-
-async function listenNative(cap, lang) {
-  const perm = await cap.requestPermissions();
-  if (perm.speechRecognition !== 'granted') throw err('denied');
-  let cancelled = false;
-  activeCancel = () => { cancelled = true; cap.stop().catch(() => {}); };
-  try {
-    const res = await cap.start({ language: lang, maxResults: 1, partialResults: false, popup: false });
-    if (cancelled) throw err('cancelled');
-    const text = res && res.matches && res.matches[0];
-    if (!text) throw err('no-speech');
-    return text;
-  } finally {
-    activeCancel = null;
-  }
 }

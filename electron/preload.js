@@ -13,6 +13,8 @@ contextBridge.exposeInMainWorld('assistant', {
     saveSettings: (settings) => ipcRenderer.invoke('llm:save-settings', settings),
     chat: (history, text) => ipcRenderer.invoke('llm:chat', { history, text }),
   },
+  stt: { transcribe: (base64, mime) => ipcRenderer.invoke('stt:transcribe', { base64, mime }) },
+  onOpenSettings: (cb) => ipcRenderer.on('open-settings', () => cb()),
   onToggleListen: (cb) => ipcRenderer.on('toggle-listen', () => cb()),
   onTypeCommand: (cb) => ipcRenderer.on('type-command', () => cb()),
 });

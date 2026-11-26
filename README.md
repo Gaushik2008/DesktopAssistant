@@ -77,7 +77,8 @@ Click the **⚙ gear** next to the mic to set it up. Works with any OpenAI-compa
 
 | Provider | Base URL | Model (editable) | Key |
 |---|---|---|---|
-| **NVIDIA API** | `https://integrate.api.nvidia.com/v1` | `meta/llama-3.1-8b-instruct` (use any model on build.nvidia.com) | `nvapi-...` from build.nvidia.com |
+| **Google Gemini** *(default; also powers voice)* | `https://generativelanguage.googleapis.com/v1beta/openai` | `gemini-flash-latest` (any current Gemini model) | key from <https://aistudio.google.com/apikey> |
+| **NVIDIA API** (chat only) | `https://integrate.api.nvidia.com/v1` | `meta/llama-3.1-8b-instruct` (use any model on build.nvidia.com) | `nvapi-...` from build.nvidia.com |
 | **Local – Ollama (Qwen)** | `http://localhost:11434/v1` | `qwen3:4b` – run `ollama list` for your exact tag | none |
 | **Local – LM Studio** | `http://localhost:1234/v1` | the model id shown in LM Studio | none |
 | Custom | any `https://` URL (plain `http://` only for localhost / LAN) | – | optional |
@@ -182,14 +183,23 @@ npm run web      # serves src/web locally; links open in new tabs
 
 Build each desktop installer on its own OS (or use the CI workflow).
 
-## Speech recognition
-`src/web/speech.js` tries providers in order:
+## Speech recognition (voice via Gemini)
+Voice works by **recording your voice and sending the short clip to Google Gemini**, because Electron — unlike Chrome — has no built-in speech service (its Web Speech API needs Google's private keys; this caused the old *"Voice recognition is unavailable here"* error).
 
-1. **Android native recogniser** via `@capacitor-community/speech-recognition`.
-2. **Web Speech API** (Chromium).
-3. **Typed fallback** if neither works.
+**Setup (30 seconds):** create a key at <https://aistudio.google.com/apikey> → click the **⚙ gear** (or tray → *Settings*) → provider **Google Gemini** (default) → paste the key → **Save & test**. First launch opens this panel for you. The same key powers [AI chat](#ai-chat-talk-about-anything).
 
-> ⚠️ Stock Electron ships the Web Speech API **without Google API keys**, so on desktop it commonly fails with a network error and Sir Pixel falls back to the typed box. A local engine (Vosk / whisper.cpp) is the planned fix — see the [Roadmap](#roadmap).
+Pipeline (`src/web/recorder.js` → `speech.js` → main process → Gemini `generateContent`):
+1. `getUserMedia` mic capture, simple noise-floor voice-activity detection (auto-stops ~1.1 s after you stop talking; 7 s with no speech; 12 s max). Tap the mic again to finish early, `Esc` to cancel. The mic button pulses with your voice level.
+2. Resample to 16 kHz mono 16-bit **WAV** (works in Electron *and* Android WebView, no codec differences).
+3. **Desktop:** the clip goes to the Electron main process, which calls Gemini — the API key never reaches the UI. **Android:** native HTTP plugin.
+4. The transcript goes through the normal command parser → action, or → Gemini chat if no command matches.
+
+Fallback order in `speech.js`: Gemini → Android native recogniser (if Gemini fails on a phone) → Web Speech (real Chrome only) → typed box (`Ctrl+Alt+T`). Errors are specific: missing/invalid key and wrong model reopen the settings panel; quota, network, mic-denied and no-mic show a clear bubble and the typed box.
+
+Privacy/cost: audio is sent only while the red *Listening* state is shown, nothing is saved to disk; each command is one short Gemini request (plus one chat request when no command matches). Model is editable; default `gemini-flash-latest`.
+
+## Always on top
+Sir Pixel uses Electron's highest window level (`screen-saver`), is visible on every virtual desktop and over fullscreen apps, and **re-asserts** the topmost flag on blur / show / restore, display changes and every 3 s so other windows can't bury him. Tray → *Always on top* toggles it. On **Linux Wayland** compositors ignore always-on-top for normal windows, so the app runs through **XWayland** by default (`SIRPIXEL_OZONE=wayland` opts out). Windows exclusive-fullscreen games can still cover any overlay.
 
 ## Security model
 - Speech is **never** executed as a shell command; `spawn()` is always called with `shell: false` and an args array.
@@ -228,6 +238,8 @@ To enable it, copy the file to `.github/workflows/ci.yml` (pushing workflow file
 - Opening installed Android apps by package name relies on the AppLauncher plugin and has not been verified on a physical device yet.
 - Electron click-through is disabled on Linux (`forward` unsupported there); the window stays interactive.
 - Global hotkeys may be unavailable under some Wayland compositors.
+- Voice needs internet + a Gemini key; an offline engine (Vosk / whisper.cpp) is on the roadmap.
+- Live Gemini transcription has only been tested against mocked responses, not the real API (no key in the build sandbox).
 - macOS works best-effort but is not an official target.
 
 ## Roadmap

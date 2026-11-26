@@ -11,7 +11,7 @@ const llm = require('./llm');
 
 const DEV = process.argv.includes('--dev');
 const PLATFORM = process.platform === 'win32' ? 'windows' : process.platform === 'darwin' ? 'macos' : 'linux';
-const WIN_W = 340, WIN_H = 380;
+const WIN_W = 340, WIN_H = 480; // tall enough for bubble + settings panel + pet
 
 let win = null;
 let tray = null;
@@ -21,7 +21,12 @@ if (!app.requestSingleInstanceLock()) app.quit();
 app.on('second-instance', () => win && (win.show(), win.focus()));
 
 // Transparent windows need a compositor on Linux; GPU quirks are common on VMs.
-if (process.platform === 'linux') app.commandLine.appendSwitch('enable-transparent-visuals');
+if (process.platform === 'linux') {
+  app.commandLine.appendSwitch('enable-transparent-visuals');
+  // Wayland compositors ignore "always on top" from normal windows; XWayland honours it.
+  // Set SIRPIXEL_OZONE=wayland to opt out.
+  app.commandLine.appendSwitch('ozone-platform', process.env.SIRPIXEL_OZONE || 'x11');
+}
 
 function createWindow() {
   const { workArea } = screen.getPrimaryDisplay();
@@ -47,8 +52,12 @@ function createWindow() {
       spellcheck: false,
     },
   });
-  win.setAlwaysOnTop(true, 'screen-saver');
-  win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+  keepOnTop();
+  // Other apps (fullscreen, taskbar clicks, focus changes) can knock the topmost flag off,
+  // so re-assert it on window events, display changes and a slow timer.
+  for (const ev of ['blur', 'show', 'restore']) win.on(ev, keepOnTop);
+  screen.on('display-metrics-changed', keepOnTop);
+  setInterval(keepOnTop, 3000);
   win.loadFile(path.join(__dirname, '..', 'src', 'web', 'index.html'));
   win.once('ready-to-show', () => win.show());
 
@@ -56,9 +65,20 @@ function createWindow() {
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   win.webContents.on('will-navigate', (e) => e.preventDefault());
   // Grant only the microphone permission (needed for voice).
-  win.webContents.session.setPermissionRequestHandler((_wc, permission, cb) => cb(permission === 'media'));
+  const ses = win.webContents.session;
+  ses.setPermissionRequestHandler((_wc, permission, cb) => cb(permission === 'media'));
+  ses.setPermissionCheckHandler((_wc, permission) => permission === 'media');
 
   if (DEV) win.webContents.openDevTools({ mode: 'detach' });
+}
+
+let onTop = true;
+function keepOnTop() {
+  if (!win || win.isDestroyed() || !onTop || !win.isVisible()) return;
+  // 'screen-saver' is the highest level: above fullscreen apps and the taskbar / panel.
+  win.setAlwaysOnTop(true, 'screen-saver', 1);
+  win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true, skipTransformProcessType: true });
+  win.moveTop();
 }
 
 function toggleWindow() {
@@ -73,6 +93,8 @@ function createTray() {
   tray.setContextMenu(Menu.buildFromTemplate([
     { label: 'Talk (Ctrl+Alt+Space)', click: () => { win.show(); win.webContents.send('toggle-listen'); } },
     { label: 'Type a command (Ctrl+Alt+T)', click: () => { win.show(); win.focus(); win.webContents.send('type-command'); } },
+    { label: 'Settings (Gemini API key)', click: () => { win.show(); win.focus(); win.webContents.send('open-settings'); } },
+    { label: 'Always on top', type: 'checkbox', checked: true, click: (item) => { onTop = item.checked; win.setAlwaysOnTop(onTop, 'screen-saver'); if (onTop) keepOnTop(); } },
     { label: 'Show / Hide', click: toggleWindow },
     { type: 'separator' },
     { label: 'Quit', click: () => app.quit() },
@@ -126,6 +148,12 @@ ipcMain.handle('llm:save-settings', (_e, input) => (isObj(input) ? store().save(
 ipcMain.handle('llm:chat', (_e, req) => {
   if (!isObj(req)) return { ok: false, message: 'Bad request.' };
   return llm.chat({ settings: store().getRaw(), history: Array.isArray(req.history) ? req.history : [], text: req.text });
+});
+
+// Speech-to-text (Gemini). Audio comes from the renderer; the key stays here.
+ipcMain.handle('stt:transcribe', (_e, req) => {
+  if (!isObj(req)) return { ok: false, code: 'error', message: 'Bad request.' };
+  return llm.transcribe({ settings: store().getRaw(), base64: req.base64, mime: req.mime });
 });
 
 ipcMain.handle('platform', () => PLATFORM);

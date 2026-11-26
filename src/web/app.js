@@ -5,7 +5,7 @@ import { IDLE_QUIPS, pick } from './core/personality.js';
 import { PRESETS, validateSettings, trimHistory } from './core/llm.js';
 import { tts } from './tts.js';
 import { runLocalAction } from './local-actions.js';
-import { listen, cancelListening, speechSupported } from './speech.js';
+import { listen, cancelListening, stopListening as finishListening, speechSupported } from './speech.js';
 
 const $ = (id) => document.getElementById(id);
 const stage = $('stage'), bubble = $('bubble'), bubbleText = $('bubble-text');
@@ -92,21 +92,31 @@ async function handleTranscript(text) {
 }
 
 async function startListening() {
-  if (state === 'listening') return stopListening();
+  if (state === 'listening') return finishListening(); // tap again = "I'm done talking"
   if (!speechSupported()) return openTypebox('Voice is not available here - type a command.');
   setState('listening');
   tts.stop(); // don't let the mic hear Sir Pixel
   say('Listening... (Esc to cancel)', { ms: 15000, speaking: false, voice: false });
   try {
-    const text = await listen();
+    const text = await listen({ onLevel: (l) => mic.style.setProperty('--lvl', l.toFixed(2)) });
     await handleTranscript(text);
   } catch (e) {
+    mic.style.setProperty('--lvl', 0);
     setState('idle');
-    if (e.code === 'cancelled') return say('Cancelled.', { ms: 1500, speaking: false });
-    if (e.code === 'no-speech') return say("I didn't catch that. Try again?", { ms: 3500 });
-    if (['network', 'unsupported', 'denied', 'error'].includes(e.code)) {
-      const why = e.code === 'denied' ? 'Microphone permission was denied.' : 'Voice recognition is unavailable here.';
-      return openTypebox(`${why} Type a command instead.`);
+    switch (e.code) {
+      case 'cancelled': return say('Cancelled.', { ms: 1500, speaking: false, voice: false });
+      case 'no-speech': return say("I didn't catch that. Try again?", { ms: 3500 });
+      case 'nokey':
+      case 'nogemini':
+      case 'badkey':
+      case 'badmodel':
+        await openSettings();
+        return say(e.message || 'Check your Gemini settings.', { ms: 7000 });
+      case 'quota': return say(e.message, { ms: 5000 });
+      case 'network': return openTypebox(`${e.message || "Couldn't reach Gemini."} You can type instead.`);
+      case 'denied': return openTypebox('Microphone access was denied. Allow it in your system privacy settings, or type instead.');
+      case 'no-mic': return openTypebox('No microphone found. Type a command instead.');
+      default: return openTypebox(`Voice failed (${e.message || e.code}). Type a command instead.`);
     }
   }
 }
@@ -248,7 +258,17 @@ for (const el of [pet, mic, bubble, typebox, settingsForm, gear, speaker]) {
 // Global hotkeys / tray (desktop)
 platform.onToggleListen(startListening);
 platform.onTypeCommand(() => openTypebox());
+platform.onOpenSettings(() => openSettings());
 
 // ----------------------------------------------------------------- boot ----
-setTimeout(() => say('Ready when you are.', { ms: 3500, voice: false }), 600);
+(async () => {
+  // First run: Gemini powers both voice and chat, so ask for the key right away.
+  const cfg = platform.llm ? await platform.llm.getSettings().catch(() => null) : null;
+  if (cfg && !cfg.hasKey && PRESETS[cfg.provider]?.needsKey) {
+    await openSettings();
+    say('Welcome! Paste your Gemini API key so I can hear you.', { ms: 8000, voice: false });
+  } else {
+    say('Ready when you are.', { ms: 3500, voice: false });
+  }
+})();
 scheduleIdle();

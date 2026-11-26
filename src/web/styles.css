@@ -108,3 +108,5 @@ body.web-preview { background: #14141a; }
 .btn.ghost { background: transparent; color: #cfd8e3; border: 1px solid #3a4350; }
 
 .speaker { left: 34px; }
+
+.mic { transform: scale(calc(1 + var(--lvl, 0) * .35)); }

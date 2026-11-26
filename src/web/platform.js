@@ -11,7 +11,10 @@
 // Android (Capacitor) uses Capacitor.Plugins.* globals - no bundler needed.
 
 import { isSafeUrl, APPS } from './core/catalog.js';
-import { PRESETS, validateSettings, buildRequest, extractReply, friendlyHttpError } from './core/llm.js';
+import {
+  PRESETS, validateSettings, buildRequest, extractReply, friendlyHttpError,
+  buildTranscribeRequest, extractTranscript, sttErrorFromStatus, checkSttReady,
+} from './core/llm.js';
 
 const noop = () => {};
 
@@ -30,12 +33,14 @@ const desktop = () => ({
   moveBy: window.assistant.moveBy,
   nativeSpeech: false,
   llm: window.assistant.llm,
+  stt: window.assistant.stt || null,
+  onOpenSettings: window.assistant.onOpenSettings || noop,
 });
 
 // Android: settings live in the app's private WebView storage; HTTP goes through the native
 // CapacitorHttp plugin (no CORS, and it can reach a PC on your LAN running Ollama/LM Studio).
 const LLM_KEY = 'sirpixel.llm';
-const llmDefaults = { provider: 'nvidia', baseUrl: PRESETS.nvidia.baseUrl, model: PRESETS.nvidia.model };
+const llmDefaults = { provider: 'gemini', baseUrl: PRESETS.gemini.baseUrl, model: PRESETS.gemini.model };
 const readLlm = () => { try { return { ...llmDefaults, ...JSON.parse(localStorage.getItem(LLM_KEY) || '{}') }; } catch { return { ...llmDefaults }; } };
 const androidLlm = () => ({
   async getSettings() { const d = readLlm(); return { provider: d.provider, baseUrl: d.baseUrl, model: d.model, hasKey: Boolean(d.apiKey) }; },
@@ -63,12 +68,29 @@ const androidLlm = () => ({
   },
 });
 
+const androidStt = () => ({
+  async transcribe(base64) {
+    const settings = readLlm();
+    const bad = checkSttReady(settings, base64);
+    if (bad) return bad;
+    const req = buildTranscribeRequest(settings, base64);
+    try {
+      const res = await window.Capacitor.Plugins.CapacitorHttp.request({ url: req.url, method: 'POST', headers: req.headers, data: req.body, connectTimeout: 15000, readTimeout: 30000 });
+      if (res.status < 200 || res.status >= 300) return { ok: false, ...sttErrorFromStatus(res.status) };
+      const text = extractTranscript(typeof res.data === 'string' ? JSON.parse(res.data) : res.data);
+      if (text === null) return { ok: false, code: 'error', message: 'Gemini sent an unreadable answer.' };
+      return text ? { ok: true, text } : { ok: false, code: 'no-speech', message: "I didn't catch that." };
+    } catch { return { ok: false, code: 'network', message: "Couldn't reach Gemini. Are you online?" }; }
+  },
+});
+
 const android = () => {
   const P = () => window.Capacitor.Plugins;
   return {
     name: 'android',
     nativeSpeech: true,
     llm: androidLlm(),
+    stt: androidStt(),
     async execute(action) {
       if (!action) return { ok: true };
       try {
@@ -98,6 +120,7 @@ const android = () => {
     },
     onToggleListen: noop,
     onTypeCommand: noop,
+    onOpenSettings: noop,
     setInteractive: noop,
     moveBy: noop,
   };
@@ -106,6 +129,7 @@ const android = () => {
 const web = () => ({
   name: 'web',
   nativeSpeech: false,
+  stt: null,
   llm: null, // AI chat needs the desktop or Android app (browser CORS/CSP)
   async execute(action) {
     if (!action) return { ok: true };
@@ -120,6 +144,7 @@ const web = () => ({
     return { ok: true };
   },
   onToggleListen: noop,
+  onOpenSettings: noop,
   onTypeCommand: noop,
   setInteractive: noop,
   moveBy: noop,
