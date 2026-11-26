@@ -2,6 +2,7 @@ import { mountPet } from './pet.js';
 import { platform } from './platform.js';
 import { parse } from './core/intents.js';
 import { IDLE_QUIPS, pick } from './core/personality.js';
+import { PRESETS, validateSettings, trimHistory } from './core/llm.js';
 import { runLocalAction } from './local-actions.js';
 import { listen, cancelListening, speechSupported } from './speech.js';
 
@@ -66,6 +67,9 @@ async function handleTranscript(text) {
     pendingFollowUp = res.followUp || null;
   }
 
+  // Anything the command parser doesn't understand goes to the AI (if this platform has one).
+  if (res.intent === 'unknown' && platform.llm) return askAI(text);
+
   let reply = res.reply;
   if (res.action) {
     const local = runLocalAction(res.action, { onAlarm: (msg) => say(msg, { ms: 12000 }) });
@@ -125,12 +129,75 @@ typebox.addEventListener('submit', (e) => {
   if (v) handleTranscript(v);
 });
 
+
+// ------------------------------------------------------------- AI chat -----
+// Replies are only ever DISPLAYED - never parsed into commands or executed.
+let aiHistory = [];
+
+async function askAI(text) {
+  const settings = await platform.llm.getSettings();
+  const v = validateSettings(settings);
+  if (!v.ok) {
+    openSettings();
+    say(`Let's set up the AI first: ${v.error}`, { ms: 6000 });
+    return;
+  }
+  setState('thinking');
+  say('Thinking...', { ms: 30000 });
+  const out = await platform.llm.chat(trimHistory(aiHistory), text);
+  if (out.ok) {
+    aiHistory = trimHistory([...aiHistory, { role: 'user', content: text }, { role: 'assistant', content: out.reply }]);
+    say(out.reply, { ms: Math.min(4000 + out.reply.length * 60, 20000) });
+  } else {
+    say(out.message || "I couldn't reach the AI.", { ms: 7000 });
+  }
+  setState('idle');
+}
+
+// ---------------------------------------------------------- AI settings -----
+const settingsForm = $('settings'), gear = $('gear');
+const fProvider = $('llm-provider'), fUrl = $('llm-url'), fModel = $('llm-model'), fKey = $('llm-key'), fStatus = $('llm-status');
+
+function setStatus(msg, kind = '') { fStatus.textContent = msg; fStatus.className = `status ${kind}`.trim(); }
+
+async function openSettings() {
+  if (!platform.llm) { say('AI chat works in the desktop and Android apps.', { ms: 4000 }); return; }
+  const cur = await platform.llm.getSettings();
+  fProvider.value = cur.provider; fUrl.value = cur.baseUrl || ''; fModel.value = cur.model || ''; fKey.value = '';
+  setStatus(cur.hasKey ? 'A key is saved. Leave blank to keep it.' : '');
+  settingsForm.classList.remove('hidden');
+  platform.setInteractive(true);
+  fModel.focus();
+}
+function closeSettings() { settingsForm.classList.add('hidden'); fKey.value = ''; }
+
+gear.addEventListener('click', () => (settingsForm.classList.contains('hidden') ? openSettings() : closeSettings()));
+$('llm-close').addEventListener('click', closeSettings);
+fProvider.addEventListener('change', () => {
+  const p = PRESETS[fProvider.value];
+  if (p && fProvider.value !== 'custom') { fUrl.value = p.baseUrl; fModel.value = p.model; }
+});
+settingsForm.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  setStatus('Saving...');
+  const saved = await platform.llm.saveSettings({
+    provider: fProvider.value, baseUrl: fUrl.value.trim(), model: fModel.value.trim(), apiKey: fKey.value.trim(),
+  });
+  fKey.value = '';
+  const v = validateSettings(saved);
+  if (!v.ok) { setStatus(v.error, 'err'); return; }
+  setStatus('Testing...');
+  const out = await platform.llm.chat([], 'Say hello in five words.');
+  if (out.ok) { aiHistory = []; setStatus(`Connected: ${out.reply.slice(0, 60)}`, 'ok'); } else setStatus(out.message, 'err');
+});
+
 // ------------------------------------------------------------- UI events ----
 mic.addEventListener('click', startListening);
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') {
     if (state === 'listening') stopListening();
     closeTypebox();
+    closeSettings();
   }
 });
 pet.addEventListener('dblclick', () => say(pick(IDLE_QUIPS), { ms: 4000 }));
@@ -149,10 +216,10 @@ pet.addEventListener('pointermove', (e) => {
 pet.addEventListener('pointerup', () => { drag = null; });
 
 // Click-through on desktop: only the pet, mic, bubble and typebox catch the mouse.
-for (const el of [pet, mic, bubble, typebox]) {
+for (const el of [pet, mic, bubble, typebox, settingsForm, gear]) {
   el.addEventListener('mouseenter', () => platform.setInteractive(true));
   el.addEventListener('mouseleave', () => {
-    if (typebox.classList.contains('hidden') && document.activeElement !== typeinput) platform.setInteractive(false);
+    if (typebox.classList.contains('hidden') && settingsForm.classList.contains('hidden') && document.activeElement !== typeinput) platform.setInteractive(false);
   });
 }
 
