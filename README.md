@@ -210,6 +210,8 @@ Runs, with Node's built-in test runner:
 - **LLM tests** – request building, response cleaning, error mapping, timeouts, encrypted key store.
 - **UI integration tests** (`test/ui.test.mjs`) – also covers the AI chat flow and settings panel; loads the real `index.html` + `app.js` in **jsdom** with a stubbed desktop bridge and drives it through the typed-command box (open site, Spotify, maths/notes, "yes" follow-up, timer firing, mic fallback, Esc, dismiss).
 
+**Electron smoke test** (Linux, needs `xvfb` + `ffmpeg`): `npm run smoke` launches the real app on a virtual display, saves a screenshot and fails on JS errors.
+
 jsdom does not render pixels or run Electron/Android; real-browser end-to-end tests are on the roadmap.
 
 ## CI

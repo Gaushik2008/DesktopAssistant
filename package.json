@@ -18,7 +18,8 @@
     "android:add": "cap add android",
     "android:sync": "cap sync android",
     "android:open": "cap open android",
-    "android:apk": "cap sync android && cd android && ./gradlew assembleDebug"
+    "android:apk": "cap sync android && cd android && ./gradlew assembleDebug",
+    "smoke": "bash scripts/smoke-electron.sh"
   },
   "dependencies": {
     "@capacitor-community/speech-recognition": "^7.0.0",
@@ -28,8 +29,8 @@
   },
   "devDependencies": {
     "@capacitor/cli": "^7.0.0",
-    "electron": "^33.0.0",
-    "electron-builder": "^25.0.0",
+    "electron": "^45.5.0",
+    "electron-builder": "^26.18.0",
     "jsdom": "^31.0.1"
   },
   "build": {
