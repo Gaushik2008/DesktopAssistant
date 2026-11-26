@@ -4,7 +4,7 @@ import { parse, normalize } from '../src/web/core/intents.js';
 import { isSafeUrl, findApp, findSite } from '../src/web/core/catalog.js';
 
 test('normalize strips wake word, politeness and punctuation', () => {
-  assert.equal(normalize('Hey Sir Pixel, please open YouTube.'), 'open YouTube');
+  assert.equal(normalize('Hey DO.IT, please open YouTube.'), 'open YouTube');
   assert.equal(normalize('Could you open youtube for me?'), 'open youtube');
 });
 

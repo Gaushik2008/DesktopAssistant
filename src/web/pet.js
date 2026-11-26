@@ -1,4 +1,4 @@
-// Sir Pixel - an original voxel king on a grass block, drawn as inline SVG
+// DO.IT (the voxel king) - an original voxel king on a grass block, drawn as inline SVG
 // (no image assets, so it scales crisply and works offline everywhere).
 
 const SKIN = '#f0b48a', SKIN_D = '#d6966c';

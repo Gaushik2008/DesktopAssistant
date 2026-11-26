@@ -6,9 +6,11 @@ import { PRESETS, validateSettings, trimHistory } from './core/llm.js';
 import { tts } from './tts.js';
 import { runLocalAction } from './local-actions.js';
 import { listen, cancelListening, stopListening as finishListening, speechSupported } from './speech.js';
+import { matchWake } from './core/wake.js';
 
 const $ = (id) => document.getElementById(id);
 const stage = $('stage'), bubble = $('bubble'), bubbleText = $('bubble-text');
+const ear = $('ear');
 const pet = $('pet'), mic = $('mic'), typebox = $('typebox'), typeinput = $('typeinput');
 
 mountPet(pet);
@@ -48,6 +50,8 @@ function scheduleIdle() {
   idleTimer = setTimeout(() => {
     if (state === 'idle' && typebox.classList.contains('hidden')) say(pick(IDLE_QUIPS), { ms: 4500, voice: false });
     scheduleIdle();
+syncEar();
+startHandsFree();
   }, 25000 + Math.random() * 35000);
 }
 
@@ -70,10 +74,27 @@ async function handleTranscript(text) {
     pendingFollowUp = res.followUp || null;
   }
 
+  // Just the name ("DO.IT"): answer a pending "yes", otherwise say hello and listen for the command.
+  if (res.intent === 'wake') {
+    if (pendingFollowUp) {
+      res = { intent: 'follow-up', reply: 'On it.', action: pendingFollowUp };
+      pendingFollowUp = null;
+    } else {
+      setState('idle');
+      say('Yes?', { ms: 2500 });
+      return startListening();
+    }
+  }
+
   // Anything the command parser doesn't understand goes to the AI (if this platform has one).
   if (res.intent === 'unknown' && platform.llm) return askAI(text);
 
   let reply = res.reply;
+  if (res.action && res.action.kind === 'handsfree') {
+    if (res.action.enabled && !speechSupported()) reply = "I can't listen on this device. Type a command instead.";
+    else setHandsFree(res.action.enabled);
+    res = { ...res, action: null };
+  }
   if (res.action) {
     const local = runLocalAction(res.action, { onAlarm: (msg) => say(msg, { ms: 12000 }) });
     if (local.handled) {
@@ -94,8 +115,9 @@ async function handleTranscript(text) {
 async function startListening() {
   if (state === 'listening') return finishListening(); // tap again = "I'm done talking"
   if (!speechSupported()) return openTypebox('Voice is not available here - type a command.');
+  if (passiveActive) cancelListening(); // hand the mic over from wake-word listening
   setState('listening');
-  tts.stop(); // don't let the mic hear Sir Pixel
+  tts.stop(); // don't let the mic hear DO.IT
   say('Listening... (Esc to cancel)', { ms: 15000, speaking: false, voice: false });
   try {
     const text = await listen({ onLevel: (l) => mic.style.setProperty('--lvl', l.toFixed(2)) });
@@ -103,23 +125,99 @@ async function startListening() {
   } catch (e) {
     mic.style.setProperty('--lvl', 0);
     setState('idle');
-    switch (e.code) {
-      case 'cancelled': return say('Cancelled.', { ms: 1500, speaking: false, voice: false });
-      case 'no-speech': return say("I didn't catch that. Try again?", { ms: 3500 });
-      case 'nokey':
-      case 'nogemini':
-      case 'badkey':
-      case 'badmodel':
-        await openSettings();
-        return say(e.message || 'Check your Gemini settings.', { ms: 7000 });
-      case 'quota': return say(e.message, { ms: 5000 });
-      case 'network': return openTypebox(`${e.message || "Couldn't reach Gemini."} You can type instead.`);
-      case 'denied': return openTypebox('Microphone access was denied. Allow it in your system privacy settings, or type instead.');
-      case 'no-mic': return openTypebox('No microphone found. Type a command instead.');
-      default: return openTypebox(`Voice failed (${e.message || e.code}). Type a command instead.`);
-    }
+    return reportListenError(e);
   }
 }
+
+async function reportListenError(e) {
+  switch (e.code) {
+    case 'cancelled': return say('Cancelled.', { ms: 1500, speaking: false, voice: false });
+    case 'no-speech': return say("I didn't catch that. Try again?", { ms: 3500 });
+    case 'nokey':
+    case 'nogemini':
+    case 'badkey':
+    case 'badmodel':
+      await openSettings();
+      return say(e.message || 'Check your Gemini settings.', { ms: 7000 });
+    case 'quota': return say(e.message, { ms: 5000 });
+    case 'network': return openTypebox(`${e.message || "Couldn't reach Gemini."} You can type instead.`);
+    case 'denied': return openTypebox('Microphone access was denied. Allow it in your system privacy settings, or type instead.');
+    case 'no-mic': return openTypebox('No microphone found. Type a command instead.');
+    default: return openTypebox(`Voice failed (${e.message || e.code}). Type a command instead.`);
+  }
+}
+
+// ----------------------------------------- hands-free (wake word "DO.IT") ----
+// Always-listening loop: record one utterance (voice-activity detection), transcribe it, and act
+// ONLY if it starts with the name. Everything else is dropped on the spot - never stored or
+// executed. NOTE: with the Gemini engine each detected utterance is sent for transcription, so
+// ambient speech near the mic leaves the device. Turn it off with the ear button or "stop listening".
+const HF_KEY = 'sirpixel.handsfree';
+const HF_FATAL = new Set(['nokey', 'nogemini', 'badkey', 'badmodel', 'quota', 'denied', 'no-mic', 'unsupported']);
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+let handsFree = (() => { try { const v = localStorage.getItem(HF_KEY); return v === null ? true : v === '1'; } catch { return true; } })();
+let hfLoop = false;
+let passiveActive = false;
+
+function syncEar() {
+  ear.classList.toggle('hidden', !speechSupported());
+  ear.setAttribute('aria-pressed', String(handsFree));
+  ear.title = handsFree ? 'Always listening for "DO.IT" (click to turn off)' : 'Always listening: off (click to turn on)';
+}
+
+function setHandsFree(on) {
+  handsFree = Boolean(on) && speechSupported();
+  try { localStorage.setItem(HF_KEY, handsFree ? '1' : '0'); } catch { /* storage unavailable */ }
+  syncEar();
+  if (handsFree) startHandsFree();
+  else if (passiveActive) cancelListening();
+}
+
+async function startHandsFree() {
+  if (hfLoop || !handsFree || !speechSupported()) return;
+  hfLoop = true;
+  let errors = 0;
+  try {
+    while (handsFree) {
+      const busy = state !== 'idle' || tts.isSpeaking() ||
+        !settingsForm.classList.contains('hidden') || !typebox.classList.contains('hidden');
+      if (busy) { await sleep(400); continue; }
+
+      let text;
+      passiveActive = true;
+      try {
+        text = await listen({ passive: true });
+        errors = 0;
+      } catch (e) {
+        if (e.code === 'cancelled' || e.code === 'no-speech') { await sleep(150); continue; }
+        if (HF_FATAL.has(e.code)) {
+          handsFree = false;
+          try { localStorage.setItem(HF_KEY, '0'); } catch { /* ignore */ }
+          syncEar();
+          await reportListenError(e);
+          break;
+        }
+        if (++errors >= 5) { setHandsFree(false); say('Always-listening stopped after repeated errors. Tap the ear to retry.', { ms: 6000 }); break; }
+        await sleep(Math.min(30000, 1500 * 2 ** errors));
+        continue;
+      } finally {
+        passiveActive = false;
+      }
+
+      const wake = matchWake(text);
+      if (!wake.matched) continue; // ambient speech: ignore
+      await handleTranscript(text);
+    }
+  } finally {
+    hfLoop = false;
+  }
+}
+
+ear.addEventListener('click', () => {
+  const on = !handsFree;
+  setHandsFree(on);
+  say(on ? 'Listening. Say "DO.IT" before a command.' : 'Always-listening off. Tap the mic to talk.', { ms: 3500 });
+});
 
 function stopListening() {
   cancelListening();
@@ -252,7 +350,7 @@ pet.addEventListener('pointermove', (e) => {
 pet.addEventListener('pointerup', () => { drag = null; });
 
 // Click-through on desktop: only the pet, mic, bubble and typebox catch the mouse.
-for (const el of [pet, mic, bubble, typebox, settingsForm, gear, speaker]) {
+for (const el of [pet, mic, bubble, typebox, settingsForm, gear, speaker, ear]) {
   el.addEventListener('mouseenter', () => platform.setInteractive(true));
   el.addEventListener('mouseleave', () => {
     if (typebox.classList.contains('hidden') && settingsForm.classList.contains('hidden') && document.activeElement !== typeinput) platform.setInteractive(false);
@@ -276,3 +374,5 @@ platform.onOpenSettings(() => openSettings());
   }
 })();
 scheduleIdle();
+syncEar();
+startHandsFree();

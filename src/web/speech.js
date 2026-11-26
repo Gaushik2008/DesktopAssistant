@@ -33,10 +33,10 @@ export function speechSupported() {
   return Boolean((platform.stt && canRecord()) || (isNative() && capPlugin()) || webSpeech());
 }
 
-export async function listen({ onLevel = () => {}, lang = 'en-US' } = {}) {
+export async function listen({ onLevel = () => {}, lang = 'en-US', passive = false } = {}) {
   if (platform.stt && canRecord()) {
     try {
-      return await listenGemini(onLevel);
+      return await listenGemini(onLevel, passive);
     } catch (e) {
       // Gemini unusable on a phone -> fall back to the on-device recognizer instead of failing.
       const gemini = ['nokey', 'nogemini', 'badkey', 'badmodel', 'network'].includes(e.code);
@@ -49,10 +49,12 @@ export async function listen({ onLevel = () => {}, lang = 'en-US' } = {}) {
   throw err('unsupported', 'Speech recognition is not available here.');
 }
 
-async function listenGemini(onLevel) {
-  const rec = record({ onLevel });
+async function listenGemini(onLevel, passive = false) {
+  // Passive (wake-word) listening waits longer for speech so re-arming gaps are rare.
+  const rec = record(passive ? { onLevel, noSpeechMs: 30000, maxMs: 15000 } : { onLevel });
   let cancelled = false;
-  current = { stop: rec.stop, cancel: () => { cancelled = true; rec.cancel(); } };
+  const mine = { stop: rec.stop, cancel: () => { cancelled = true; rec.cancel(); } };
+  current = mine;
   try {
     const clip = await rec.result;
     if (cancelled) throw err('cancelled');
@@ -61,7 +63,7 @@ async function listenGemini(onLevel) {
     if (!out || !out.ok) throw err((out && out.code) || 'error', out && out.message);
     return out.text;
   } finally {
-    current = null;
+    if (current === mine) current = null; // a newer listen() may already own `current`
   }
 }
 

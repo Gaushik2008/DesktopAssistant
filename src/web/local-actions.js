@@ -27,7 +27,7 @@ function beep() {
 
 function notify(text) {
   try {
-    if ('Notification' in window && Notification.permission === 'granted') new Notification('Sir Pixel', { body: text });
+    if ('Notification' in window && Notification.permission === 'granted') new Notification('DO.IT', { body: text });
   } catch { /* ignore */ }
 }
 

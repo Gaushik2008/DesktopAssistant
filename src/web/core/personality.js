@@ -1,12 +1,12 @@
-// Personality: idle quips, greetings and canned replies for "Sir Pixel", the
+// Personality: idle quips, greetings and canned replies for "DO.IT", the
 // voxel king who lives on your desktop. Edit freely - this is pure data.
 
-export const NAME = 'Sir Pixel';
+export const NAME = 'DO.IT';
 
 export const IDLE_QUIPS = [
   'This throne is very comfy.',
   'All quiet in the kingdom.',
-  'Need anything? Tap the mic.',
+  'Need anything? Say "DO.IT" or tap the mic.',
   'I could rule a few more tabs.',
   'Hydration check, my liege!',
   'Remember to stretch your royal back.',

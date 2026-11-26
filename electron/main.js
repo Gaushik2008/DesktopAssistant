@@ -89,7 +89,7 @@ function toggleWindow() {
 function createTray() {
   const icon = nativeImage.createFromPath(path.join(__dirname, '..', 'assets', 'icon.png')).resize({ width: 22, height: 22 });
   tray = new Tray(icon);
-  tray.setToolTip('Sir Pixel');
+  tray.setToolTip('DO.IT');
   tray.setContextMenu(Menu.buildFromTemplate([
     { label: 'Talk (Ctrl+Alt+Space)', click: () => { win.show(); win.webContents.send('toggle-listen'); } },
     { label: 'Type a command (Ctrl+Alt+T)', click: () => { win.show(); win.focus(); win.webContents.send('type-command'); } },

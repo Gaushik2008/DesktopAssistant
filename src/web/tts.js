@@ -30,5 +30,6 @@ export const tts = {
     s.speak(u);
     return true;
   },
+  isSpeaking() { const s = synth(); return Boolean(s && (s.speaking || s.pending)); },
   stop() { const s = synth(); if (s) s.cancel(); },
 };

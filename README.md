@@ -1,7 +1,7 @@
-# 👑 Sir Pixel — Desktop Assistant
+# 👑 DO.IT — Desktop Assistant
 
 A voice-controlled **voxel-king desktop companion** for **Windows**, **Linux** and **Android**.
-Sir Pixel sits on a grass block in the corner of your screen, listens when you tap the mic
+DO.IT sits on a grass block in the corner of your screen, listens when you tap the mic
 (or press a hotkey), and does things for you: open websites, launch apps, search the web,
 play a song on Spotify or YouTube, tell the time or a joke.
 
@@ -17,7 +17,7 @@ play a song on Spotify or YouTube, tell the time or a joke.
 5. [Getting started](#getting-started)
 6. [Running on each platform](#running-on-each-platform)
 7. [Building installers / APK](#building-installers--apk)
-8. [Speech recognition](#speech-recognition)
+8. [Speech recognition](#speech-recognition-voice-via-gemini) · [Wake word & always listening](#wake-word--always-listening)
 9. [Security model](#security-model)
 10. [Customising](#customising)
 11. [Testing](#testing)
@@ -32,17 +32,18 @@ play a song on Spotify or YouTube, tell the time or a joke.
 - **Always-on-top mascot** – frameless, transparent overlay window (desktop), parked bottom-right.
 - **Speech bubble** that echoes what it heard and what it did, e.g. *"Open YouTube." Opened YouTube in your browser.*
 - **Mic button + listening state** – *"Listening… (Esc to cancel)"*.
-- **Idle quips** – Sir Pixel occasionally says something to stay alive.
+- **Always listening, wake word "DO.IT"** – say *"DO.IT, open YouTube"* with no button press. Click the 👂 button (or say *"DO.IT, stop listening"*) to turn it off. See [Wake word](#wake-word--always-listening).
+- **Idle quips** – DO.IT occasionally says something to stay alive.
 - **Typed-command fallback** – when speech is unavailable or denied, a text box appears (`Ctrl+Alt+T`).
 - **System tray** (desktop) and **global hotkeys**.
 - **Click-through** transparent areas on Windows/macOS so the overlay never blocks your work.
-- **Spoken replies (optional)** – click the 🔊 button or say *"turn on the voice"*; Sir Pixel reads his replies aloud using the system's built-in text-to-speech (no keys, works offline with local voices). Say *"stop"* / *"be quiet"* to interrupt, *"mute"* / *"voice off"* to turn it off. Off by default; the choice is remembered. The mic stops speech so he never hears himself.
+- **Spoken replies (optional)** – click the 🔊 button or say *"turn on the voice"*; DO.IT reads his replies aloud using the system's built-in text-to-speech (no keys, works offline with local voices). Say *"stop"* / *"be quiet"* to interrupt, *"mute"* / *"voice off"* to turn it off. Off by default; the choice is remembered. The mic stops speech so he never hears himself.
 - **Draggable** – move the pet anywhere on the desktop.
 - **Offline-friendly** – the mascot is inline SVG; no remote assets.
 - **Safe by design** – spoken text is never passed to a shell (see [Security model](#security-model)).
 
 ## Voice commands
-You can optionally prefix commands with a wake phrase such as *"Hey Sir Pixel, …"*, and polite filler like *"please"* or *"can you"* is ignored.
+You can optionally prefix commands with a wake phrase such as *"Hey DO.IT, …"*, and polite filler like *"please"* or *"can you"* is ignored.
 
 | Say | What happens |
 |---|---|
@@ -71,7 +72,7 @@ Known sites: YouTube, Google, Gmail, GitHub, Maps, Netflix, Reddit, X, WhatsApp 
 Add more in [`src/web/core/catalog.js`](src/web/core/catalog.js).
 
 ## AI chat (talk about anything)
-Commands stay instant and offline. When a sentence matches **no** command, Sir Pixel sends it to an AI and shows the answer in the bubble (short conversation memory, last 12 messages). The AI's reply is only ever **displayed**, never executed as a command.
+Commands stay instant and offline. When a sentence matches **no** command, DO.IT sends it to an AI and shows the answer in the bubble (short conversation memory, last 12 messages). The AI's reply is only ever **displayed**, never executed as a command.
 
 Click the **⚙ gear** next to the mic to set it up. Works with any OpenAI-compatible `/chat/completions` endpoint:
 
@@ -196,12 +197,41 @@ Pipeline (`src/web/recorder.js` → `speech.js` → main process → Gemini `gen
 
 Fallback order in `speech.js`: Gemini → Android native recogniser (if Gemini fails on a phone) → Web Speech (real Chrome only) → typed box (`Ctrl+Alt+T`). Errors are specific: missing/invalid key and wrong model reopen the settings panel; quota, network, mic-denied and no-mic show a clear bubble and the typed box.
 
-**Wrong model name (HTTP 404)?** Gemini model names change often. If Google rejects the saved model, Sir Pixel asks Google which models your key can use (`ListModels`), picks the newest plain *Flash*, saves it and retries automatically — the settings panel then shows *Connected (using …)*. This runs for both chat and voice on desktop; on Android, enter a model name manually.
+**Wrong model name (HTTP 404)?** Gemini model names change often. If Google rejects the saved model, DO.IT asks Google which models your key can use (`ListModels`), picks the newest plain *Flash*, saves it and retries automatically — the settings panel then shows *Connected (using …)*. This runs for both chat and voice on desktop; on Android, enter a model name manually.
 
 Privacy/cost: audio is sent only while the red *Listening* state is shown, nothing is saved to disk; each command is one short Gemini request (plus one chat request when no command matches). Model is editable; default `gemini-flash-latest`.
 
+## Wake word & always listening
+The assistant is called **DO.IT**. In hands-free mode the mic stays armed and DO.IT acts **only** on speech that *starts* with its name:
+
+| You say | What happens |
+|---|---|
+| "DO.IT, open YouTube" | Runs the command immediately |
+| "DO.IT" … (pause) … "play lofi on YouTube" | Replies *"Yes?"*, then listens for one command |
+| "Hey DO.IT, what time is it?" | Greetings before the name are fine |
+| "DO.IT, stop listening" / "DO.IT, hands free off" | Turns always-listening off (ear button dims) |
+| "start listening" (typed, or after tapping the mic) | Turns it back on |
+| "We should go shopping tomorrow" | Ignored - no wake word, nothing is acted on or stored |
+
+Speech-to-text spells the name many ways, so *"do it"*, *"DO.IT"*, *"do-it"*, *"doit"*, *"dew it"* and *"due it"* all count (plus the old name *"Sir Pixel"*). The matcher is `src/web/core/wake.js` (pure, unit-tested in `test/wake.test.mjs`).
+
+**How it works:** `app.js` runs a loop: record one utterance with voice-activity detection → transcribe → if it starts with the name, run it, otherwise drop it. It pauses while DO.IT is talking, while settings/typing are open, and while you use the mic manually. The mic button always works too.
+
+**Privacy - please read.**
+- With the default **Gemini** engine, *every detected utterance* near the mic is uploaded for transcription so the app can check for the name. Ambient speech therefore leaves the device and counts against your Gemini quota. Turn the 👂 off in shared rooms.
+- The mic is open continuously while it's on (your OS shows its recording indicator).
+- Nothing without the wake word is executed, kept in history, or sent anywhere else.
+- A truly private, offline wake word (nothing uploaded while idle) needs an on-device engine such as Vosk or openWakeWord. That is on the [roadmap](#roadmap).
+
+**Limitations**
+- A sentence that merely *starts* with "do it" (*"do it tomorrow"*) will wake it. It then goes to the AI as a question.
+- It can mis-hear the name in noisy rooms or with strong accents; saying it clearly followed by a short pause works best.
+- **Android:** always-listening works only while the app is open in the foreground (no background service yet). Some phones play a system beep each time the on-device recognizer re-arms.
+- Exclusive-fullscreen games, a muted/occupied mic, or no Gemini key disable it automatically with a message; tap the ear to retry.
+- Verified in real Chromium with a fake microphone (`npm run e2e:handsfree`) and mocked transcription. **Not yet verified** with a real person, a real mic and the live Gemini API.
+
 ## Always on top
-Sir Pixel uses Electron's highest window level (`screen-saver`), is visible on every virtual desktop and over fullscreen apps, and **re-asserts** the topmost flag on blur / show / restore, display changes and every 3 s so other windows can't bury him. Tray → *Always on top* toggles it. On **Linux Wayland** compositors ignore always-on-top for normal windows, so the app runs through **XWayland** by default (`SIRPIXEL_OZONE=wayland` opts out). Windows exclusive-fullscreen games can still cover any overlay.
+DO.IT uses Electron's highest window level (`screen-saver`), is visible on every virtual desktop and over fullscreen apps, and **re-asserts** the topmost flag on blur / show / restore, display changes and every 3 s so other windows can't bury him. Tray → *Always on top* toggles it. On **Linux Wayland** compositors ignore always-on-top for normal windows, so the app runs through **XWayland** by default (`SIRPIXEL_OZONE=wayland` opts out). Windows exclusive-fullscreen games can still cover any overlay.
 
 ## Security model
 - Speech is **never** executed as a shell command; `spawn()` is always called with `shell: false` and an args array.
@@ -249,7 +279,8 @@ To enable it, copy the file to `.github/workflows/ci.yml` (pushing workflow file
 - [ ] Real-browser (Playwright) end-to-end tests in CI
 - [ ] Offline speech recognition on desktop (Vosk / whisper.cpp)
 - [ ] Android floating overlay service
-- [ ] Wake-word ("Hey Sir Pixel") detection
+- [x] Wake word **"DO.IT"** with always-listening mode (cloud transcription; see [Wake word](#wake-word--always-listening))
+- [ ] Offline wake-word engine (no audio leaves the device while idle)
 - [ ] Settings panel (voice language, hotkeys, start on login)
 - [x] Timers, reminders, notes, calculator, dice/coin
 - [x] Spoken replies (text-to-speech) with toggle
@@ -261,4 +292,4 @@ To enable it, copy the file to `.github/workflows/ci.yml` (pushing workflow file
 
 ## Contributing & license
 Issues and PRs welcome. Please run `npm test` first. Licensed under the **MIT** license (see `package.json`).
-Sir Pixel is an original character; he is not affiliated with any game or franchise.
+DO.IT is an original character; he is not affiliated with any game or franchise.

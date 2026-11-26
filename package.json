@@ -1,6 +1,6 @@
 {
   "name": "desktop-assistant",
-  "productName": "Sir Pixel Desktop Assistant",
+  "productName": "DO.IT Desktop Assistant",
   "version": "0.1.0",
   "description": "A voice-controlled voxel-king desktop companion for Windows, Linux and Android.",
   "main": "electron/main.js",
@@ -12,6 +12,7 @@
     "dev": "electron . --dev",
     "web": "node scripts/serve-web.js",
     "test": "node --test \"test/*.test.mjs\"",
+    "e2e:handsfree": "node scripts/e2e-handsfree.cjs",
     "icons": "python3 scripts/make_icons.py",
     "dist:win": "electron-builder --win",
     "dist:linux": "electron-builder --linux",
@@ -35,7 +36,7 @@
   },
   "build": {
     "appId": "com.gaushik.desktopassistant",
-    "productName": "Sir Pixel",
+    "productName": "DO.IT",
     "files": [
       "electron/**",
       "src/web/**",

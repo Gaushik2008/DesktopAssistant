@@ -8,21 +8,22 @@
 //   { kind: 'note', text }                 // renderer saves a note
 //   { kind: 'list-notes' } | { kind: 'clear-notes' }
 //   { kind: 'tts', enabled } | { kind: 'tts-stop' }   // spoken replies on/off, stop talking
+//   { kind: 'handsfree', enabled }          // always-listening (wake word) on/off
 //   null                                   // reply only
 // A result may also carry `followUp` (an action to run if the user says "yes").
 
 import { findApp, findSite, SITES, APPS } from './catalog.js';
 import { parseDuration, formatDuration, evalMath } from './utils.js';
-import { GREETINGS, THANKS, JOKES, HELP_TEXT, pick } from './personality.js';
+import { GREETINGS, THANKS, JOKES, HELP_TEXT, NAME, pick } from './personality.js';
+import { matchWake, LOOSE_WAKE_RE } from './wake.js';
 
-const WAKE = /^(?:hey|hi|hello|ok|okay)?\s*(?:sir pixel|assistant|king|pixel)[,\s]+/i;
 
 /** Lowercase, strip wake word / politeness / trailing punctuation. */
 export function normalize(text) {
   return text
     .trim()
     .replace(/[.!?,]+$/g, '')
-    .replace(WAKE, '')
+    .replace(LOOSE_WAKE_RE, '')
     .replace(/^(?:please|can you|could you|would you)\s+/i, '')
     .replace(/\s+(?:please|for me)$/i, '')
     .trim();
@@ -74,11 +75,21 @@ function webSearch(query, where) {
 export function parse(text, ctx = {}) {
   const now = ctx.now || new Date();
   const rng = ctx.rng || Math.random;
+  const wake = matchWake(text || '', { strict: false });
+  if (wake.matched && !wake.rest) return { intent: 'wake', reply: 'Yes?', action: null };
   const t = normalize(text || '');
   const lower = t.toLowerCase();
   if (!lower) return { intent: 'empty', reply: "I didn't hear anything.", action: null };
 
   let m;
+
+  // --- hands-free (always listening, wake word) ------------------------------
+  if (/^(?:stop listening|hands[ -]?free off|(?:turn off|disable|switch off) (?:always listening|hands[ -]?free|(?:the )?wake word)|go to sleep)$/.test(lower)) {
+    return { intent: 'handsfree-off', reply: `Okay, I'll stop listening. Tap the mic or the ear to wake me.`, action: { kind: 'handsfree', enabled: false } };
+  }
+  if (/^(?:start listening|always listen|hands[ -]?free on|(?:turn on|enable|switch on) (?:always listening|hands[ -]?free|(?:the )?wake word))$/.test(lower)) {
+    return { intent: 'handsfree-on', reply: `Listening. Say "${NAME}" before a command.`, action: { kind: 'handsfree', enabled: true } };
+  }
 
   // --- cancel / stop -------------------------------------------------------
   if (/^(?:turn on|enable|switch on)\s+(?:the\s+)?(?:voice|speech|sound)$|^voice on$|^unmute$|^(?:speak|talk|read)(?: (?:to me|aloud|out loud|replies))+$/.test(lower)) {
@@ -92,7 +103,7 @@ export function parse(text, ctx = {}) {
   }
 
   // --- bare confirmations are resolved by the UI using the previous followUp ----
-  if (/^(?:yes|yeah|yep|sure|ok|okay|go ahead|do it)$/.test(lower)) {
+  if (/^(?:yes|yeah|yep|sure|ok|okay|go ahead)$/.test(lower)) {
     return { intent: 'confirm', reply: '', action: null };
   }
 
@@ -182,7 +193,7 @@ export function parse(text, ctx = {}) {
   if (/joke|make me laugh/.test(lower)) return { intent: 'joke', reply: pick(JOKES, rng), action: null };
   if (/^(?:help|what can you do|how do i use)/.test(lower)) return { intent: 'help', reply: HELP_TEXT, action: null };
   if (/^who are you|^what(?:'s| is) your name/.test(lower)) {
-    return { intent: 'about', reply: "I'm Sir Pixel, the voxel king of your desktop.", action: null };
+    return { intent: 'about', reply: "I'm DO.IT, the voxel king of your desktop.", action: null };
   }
 
   return { intent: 'unknown', reply: `I'm not sure how to "${t}" yet. Say "help" for ideas.`, action: null };
