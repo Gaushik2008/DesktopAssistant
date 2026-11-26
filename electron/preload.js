@@ -8,6 +8,11 @@ contextBridge.exposeInMainWorld('assistant', {
   execute: (action) => ipcRenderer.invoke('execute', action),
   setInteractive: (v) => ipcRenderer.send('set-interactive', Boolean(v)),
   moveBy: (dx, dy) => ipcRenderer.send('move-by', Number(dx), Number(dy)),
+  stt: {
+    supported: PLATFORM === 'windows',
+    listen: () => ipcRenderer.invoke('stt:listen'),
+    cancel: () => ipcRenderer.send('stt:cancel'),
+  },
   llm: {
     getSettings: () => ipcRenderer.invoke('llm:get-settings'),
     saveSettings: (settings) => ipcRenderer.invoke('llm:save-settings', settings),

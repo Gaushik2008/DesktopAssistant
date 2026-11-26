@@ -186,10 +186,15 @@ Build each desktop installer on its own OS (or use the CI workflow).
 `src/web/speech.js` tries providers in order:
 
 1. **Android native recogniser** via `@capacitor-community/speech-recognition`.
-2. **Web Speech API** (Chromium).
-3. **Typed fallback** if neither works.
+2. **Desktop offline recogniser** (`electron/stt.js`) - on **Windows** this uses the built-in `System.Speech` engine through a fixed PowerShell script. No internet, no API keys, no model download.
+3. **Web Speech API** (browsers).
+4. **Typed fallback** if none work (the box opens with the reason).
 
-> ⚠️ Stock Electron ships the Web Speech API **without Google API keys**, so on desktop it commonly fails with a network error and Sir Pixel falls back to the typed box. A local engine (Vosk / whisper.cpp) is the planned fix — see the [Roadmap](#roadmap).
+> Why not Electron's built-in Web Speech? It needs Google API keys the app doesn't ship with, so it fails with "network". That was the cause of *"Voice recognition is unavailable here"*.
+
+**Windows requirements:** a microphone, **Settings > Privacy & security > Microphone > "Let desktop apps access your microphone"** turned on, and a Windows speech recognition language installed (English is by default). Accuracy is "good dictation", not cloud quality; speak clearly and in short commands.
+
+**Linux / macOS:** no offline engine yet, so the typed box is used (`Ctrl+Alt+T`). A cross-platform engine (Vosk / whisper.cpp) is on the roadmap.
 
 ## Security model
 - Speech is **never** executed as a shell command; `spawn()` is always called with `shell: false` and an args array.
@@ -233,7 +238,8 @@ To enable it, copy the file to `.github/workflows/ci.yml` (pushing workflow file
 ## Roadmap
 - [x] jsdom UI integration tests
 - [ ] Real-browser (Playwright) end-to-end tests in CI
-- [ ] Offline speech recognition on desktop (Vosk / whisper.cpp)
+- [x] Offline speech recognition on Windows (System.Speech)
+- [ ] Offline speech recognition on Linux/macOS (Vosk / whisper.cpp)
 - [ ] Android floating overlay service
 - [ ] Wake-word ("Hey Sir Pixel") detection
 - [ ] Settings panel (voice language, hotkeys, start on login)

@@ -8,6 +8,7 @@ const path = require('path');
 const { spawn } = require('child_process');
 const { launchApp, safeOpenUrl } = require('./launcher');
 const llm = require('./llm');
+const stt = require('./stt').createRecognizer();
 
 const DEV = process.argv.includes('--dev');
 const PLATFORM = process.platform === 'win32' ? 'windows' : process.platform === 'darwin' ? 'macos' : 'linux';
@@ -121,6 +122,8 @@ ipcMain.on('move-by', (e, dx, dy) => {
 let llmStore;
 const store = () => (llmStore ||= llm.createStore({ file: path.join(app.getPath('userData'), 'llm.json'), safeStorage }));
 const isObj = (v) => v && typeof v === 'object' && !Array.isArray(v);
+ipcMain.handle('stt:listen', () => stt.listen());
+ipcMain.on('stt:cancel', () => stt.cancel());
 ipcMain.handle('llm:get-settings', () => store().get());
 ipcMain.handle('llm:save-settings', (_e, input) => (isObj(input) ? store().save(input) : store().get()));
 ipcMain.handle('llm:chat', (_e, req) => {

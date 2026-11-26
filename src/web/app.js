@@ -104,8 +104,11 @@ async function startListening() {
     setState('idle');
     if (e.code === 'cancelled') return say('Cancelled.', { ms: 1500, speaking: false });
     if (e.code === 'no-speech') return say("I didn't catch that. Try again?", { ms: 3500 });
-    if (['network', 'unsupported', 'denied', 'error'].includes(e.code)) {
-      const why = e.code === 'denied' ? 'Microphone permission was denied.' : 'Voice recognition is unavailable here.';
+    if (['network', 'unsupported', 'denied', 'no-mic', 'error'].includes(e.code)) {
+      const detail = e.message && !['error', 'network', 'unsupported'].includes(e.message) ? ` ${e.message.slice(0, 160)}` : '';
+      const why = e.code === 'denied' ? 'Microphone permission was denied.'
+        : e.code === 'no-mic' ? (detail.trim() || 'No microphone found.')
+        : `Voice recognition is unavailable here.${detail}`;
       return openTypebox(`${why} Type a command instead.`);
     }
   }
