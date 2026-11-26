@@ -189,7 +189,7 @@ Voice works by **recording your voice and sending the short clip to Google Gemin
 **Setup (30 seconds):** create a key at <https://aistudio.google.com/apikey> → click the **⚙ gear** (or tray → *Settings*) → provider **Google Gemini** (default) → paste the key → **Save & test**. First launch opens this panel for you. The same key powers [AI chat](#ai-chat-talk-about-anything).
 
 Pipeline (`src/web/recorder.js` → `speech.js` → main process → Gemini `generateContent`):
-1. `getUserMedia` mic capture, simple noise-floor voice-activity detection (auto-stops ~1.1 s after you stop talking; 7 s with no speech; 12 s max). Tap the mic again to finish early, `Esc` to cancel. The mic button pulses with your voice level.
+1. `getUserMedia` mic capture, voice-activity detection with a rolling noise floor (`createVad`, auto-stops ~1.2 s after you stop talking, tolerates pauses between words; 7 s with no speech; 15 s max). Tap the mic again to finish early, `Esc` to cancel. The mic button pulses with your voice level.
 2. Resample to 16 kHz mono 16-bit **WAV** (works in Electron *and* Android WebView, no codec differences).
 3. **Desktop:** the clip goes to the Electron main process, which calls Gemini — the API key never reaches the UI. **Android:** native HTTP plugin.
 4. The transcript goes through the normal command parser → action, or → Gemini chat if no command matches.

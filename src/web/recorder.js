@@ -47,10 +47,39 @@ export function toBase64(arrayBuffer) {
 }
 
 /**
+ * Voice-activity detector (pure, unit-tested). Feed it one RMS value per audio chunk.
+ *  - Noise floor = "minimum statistics": drops instantly to quieter chunks, creeps up slowly, so it
+ *    never learns your own voice as background noise (the old fixed 400 ms calibration did, which
+ *    made everything after the first word look like silence).
+ *  - Levels are smoothed (EMA) so brief dips between words / syllables don't count as silence.
+ *  - Speech starts above `onFactor`x floor; it only ends after `silenceMs` below `offFactor`x floor.
+ * push() returns 'continue' | 'end' (speech finished) | 'no-speech' (gave up) | 'max'.
+ */
+export function createVad({ silenceMs = 1200, noSpeechMs = 7000, maxMs = 15000, minThreshold = 0.006, onFactor = 3, offFactor = 1.8 } = {}) {
+  let floor = null, ema = 0, t0 = null, heard = false, lastVoice = 0;
+  return {
+    get heardSpeech() { return heard; },
+    push(rms, now) {
+      if (t0 === null) { t0 = now; lastVoice = now; }
+      ema = ema ? ema * 0.6 + rms * 0.4 : rms;
+      floor = floor === null ? rms : Math.min(rms, Math.min(floor * 1.015 + 1e-5, 0.03));
+      const on = Math.max(minThreshold * 1.5, floor * onFactor);
+      const off = Math.max(minThreshold, floor * offFactor);
+      if (ema > on) { heard = true; lastVoice = now; }
+      else if (heard && ema > off) lastVoice = now; // still faintly talking - keep going
+      if (now - t0 > maxMs) return heard ? 'max' : 'no-speech';
+      if (heard && now - lastVoice > silenceMs) return 'end';
+      if (!heard && now - t0 > noSpeechMs) return 'no-speech';
+      return 'continue';
+    },
+  };
+}
+
+/**
  * Start recording. Returns { result: Promise<{base64, mime, ms}>, stop(), cancel() }.
  * result rejects with code: 'denied' | 'no-mic' | 'no-speech' | 'cancelled' | 'error'
  */
-export function record({ maxMs = 12000, silenceMs = 1100, noSpeechMs = 7000, onLevel = () => {} } = {}) {
+export function record({ maxMs = 15000, silenceMs = 1200, noSpeechMs = 7000, onLevel = () => {} } = {}) {
   let stopFn = () => {};
   let cancelFn = () => {};
 
@@ -75,7 +104,7 @@ export function record({ maxMs = 12000, silenceMs = 1100, noSpeechMs = 7000, onL
 
     const chunks = [];
     const t0 = performance.now();
-    let heardSpeech = false, lastVoice = t0, floor = 0, floorN = 0;
+    const vad = createVad({ silenceMs, noSpeechMs, maxMs });
 
     return await new Promise((resolve, reject) => {
       let finished = false;
@@ -92,7 +121,7 @@ export function record({ maxMs = 12000, silenceMs = 1100, noSpeechMs = 7000, onL
         ok ? resolve(v) : reject(v);
       };
       const done = () => {
-        if (!heardSpeech) return finish(false, err('no-speech'));
+        if (!vad.heardSpeech) return finish(false, err('no-speech'));
         let n = 0; chunks.forEach((c) => (n += c.length));
         const all = new Float32Array(n);
         let o = 0; chunks.forEach((c) => { all.set(c, o); o += c.length; });
@@ -109,14 +138,10 @@ export function record({ maxMs = 12000, silenceMs = 1100, noSpeechMs = 7000, onL
         for (let i = 0; i < data.length; i++) sum += data[i] * data[i];
         const rms = Math.sqrt(sum / data.length);
         const now = performance.now();
-        // calibrate ambient noise over the first ~400 ms
-        if (now - t0 < 400) { floor += rms; floorN++; }
-        const thr = Math.max(0.015, (floorN ? floor / floorN : 0) * 3);
         onLevel(Math.min(1, rms / 0.15));
-        if (rms > thr) { heardSpeech = true; lastVoice = now; }
-        if (heardSpeech && now - lastVoice > silenceMs) done();
-        else if (!heardSpeech && now - t0 > noSpeechMs) finish(false, err('no-speech'));
-        else if (now - t0 > maxMs) done();
+        const verdict = vad.push(rms, now);
+        if (verdict === 'end' || verdict === 'max') done();
+        else if (verdict === 'no-speech') finish(false, err('no-speech'));
       };
       src.connect(proc); proc.connect(mute); mute.connect(ctx.destination);
     });
