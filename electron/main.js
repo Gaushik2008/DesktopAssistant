@@ -26,6 +26,14 @@ if (process.platform === 'linux') {
   // Wayland compositors ignore "always on top" from normal windows; XWayland honours it.
   // Set SIRPIXEL_OZONE=wayland to opt out.
   app.commandLine.appendSwitch('ozone-platform', process.env.SIRPIXEL_OZONE || 'x11');
+  // Many Linux GPU/VAAPI drivers are too old for Chromium and crash the GPU process on start
+  // ("VAAPI version is too old", exit_code=11), which breaks the transparent window. Software
+  // rendering is plenty for a small 2D pet. Set SIRPIXEL_GPU=1 to opt back in.
+  if (!process.env.SIRPIXEL_GPU) {
+    app.disableHardwareAcceleration();
+    app.commandLine.appendSwitch('disable-gpu');
+    app.commandLine.appendSwitch('disable-features', 'VaapiVideoDecoder,VaapiVideoEncoder');
+  }
 }
 
 function createWindow() {
