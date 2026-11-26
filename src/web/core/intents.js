@@ -7,6 +7,7 @@
 //   { kind: 'timer', ms, label }           // renderer schedules a reminder
 //   { kind: 'note', text }                 // renderer saves a note
 //   { kind: 'list-notes' } | { kind: 'clear-notes' }
+//   { kind: 'tts', enabled } | { kind: 'tts-stop' }   // spoken replies on/off, stop talking
 //   null                                   // reply only
 // A result may also carry `followUp` (an action to run if the user says "yes").
 
@@ -80,8 +81,14 @@ export function parse(text, ctx = {}) {
   let m;
 
   // --- cancel / stop -------------------------------------------------------
+  if (/^(?:turn on|enable|switch on)\s+(?:the\s+)?(?:voice|speech|sound)$|^voice on$|^unmute$|^(?:speak|talk|read)(?: (?:to me|aloud|out loud|replies))+$/.test(lower)) {
+    return { intent: 'voice-on', reply: 'Voice on. I will read my replies aloud.', action: { kind: 'tts', enabled: true } };
+  }
+  if (/^(?:turn off|disable|switch off)\s+(?:the\s+)?(?:voice|speech|sound)$|^voice off$|^mute$/.test(lower)) {
+    return { intent: 'voice-off', reply: 'Voice off.', action: { kind: 'tts', enabled: false } };
+  }
   if (/^(?:cancel|stop|never ?mind|be quiet|quiet)$/.test(lower)) {
-    return { intent: 'cancel', reply: 'As you wish.', action: null };
+    return { intent: 'cancel', reply: 'As you wish.', action: { kind: 'tts-stop' } };
   }
 
   // --- bare confirmations are resolved by the UI using the previous followUp ----

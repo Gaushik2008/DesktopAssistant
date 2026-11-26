@@ -36,6 +36,7 @@ play a song on Spotify or YouTube, tell the time or a joke.
 - **Typed-command fallback** – when speech is unavailable or denied, a text box appears (`Ctrl+Alt+T`).
 - **System tray** (desktop) and **global hotkeys**.
 - **Click-through** transparent areas on Windows/macOS so the overlay never blocks your work.
+- **Spoken replies (optional)** – click the 🔊 button or say *"turn on the voice"*; Sir Pixel reads his replies aloud using the system's built-in text-to-speech (no keys, works offline with local voices). Say *"stop"* / *"be quiet"* to interrupt, *"mute"* / *"voice off"* to turn it off. Off by default; the choice is remembered. The mic stops speech so he never hears himself.
 - **Draggable** – move the pet anywhere on the desktop.
 - **Offline-friendly** – the mascot is inline SVG; no remote assets.
 - **Safe by design** – spoken text is never passed to a shell (see [Security model](#security-model)).
@@ -60,6 +61,9 @@ You can optionally prefix commands with a wake phrase such as *"Hey Sir Pixel, �
 | "What is 12 times 7?" / "calculate (3 + 4) * 2" | Safe calculator (no `eval`) |
 | "Flip a coin" / "roll a dice" / "roll a d20" | Random results |
 | "Open frobnicator" → "yes" | Unknown app? Say "yes" and it searches Google for it |
+| "Turn on the voice" / "speak out loud" / "unmute" | Reads replies aloud |
+| "Mute" / "voice off" | Silences replies |
+| "Stop" / "be quiet" | Interrupts current speech |
 | "Tell me a joke", "Hello", "Thanks", "Help" | Chit-chat |
 | "Cancel" / "Never mind" | Stops |
 
@@ -91,7 +95,7 @@ Local Qwen quick start: `ollama pull qwen3:4b`, make sure Ollama is running, the
 ┌──────────────────────────── src/web (shared) ────────────────────────────┐
 │  index.html · styles.css · app.js (UI state machine)                      │
 │  pet.js (SVG mascot) · speech.js (STT providers) · platform.js (bridge)   │
-│  local-actions.js (timers, notes)                                         │
+│  tts.js (spoken replies) · local-actions.js (timers, notes)                                         │
 │  core/  intents.js (parser) · utils.js (duration, math) · catalog.js ·    │
 │         llm.js (AI chat helpers) · personality.js                        │
 └───────────────┬───────────────────────────────────────┬───────────────────┘
@@ -234,6 +238,7 @@ To enable it, copy the file to `.github/workflows/ci.yml` (pushing workflow file
 - [ ] Wake-word ("Hey Sir Pixel") detection
 - [ ] Settings panel (voice language, hotkeys, start on login)
 - [x] Timers, reminders, notes, calculator, dice/coin
+- [x] Spoken replies (text-to-speech) with toggle
 - [ ] More commands: volume control, weather
 - [x] LLM fallback for unrecognised requests (NVIDIA API, Ollama/Qwen, LM Studio)
 - [ ] Voice replies (text-to-speech) and streaming answers

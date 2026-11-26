@@ -123,3 +123,13 @@ test('unknown app offers a search follow-up; "yes" is a confirm intent', () => {
   assert.equal(r.followUp.url, 'https://www.google.com/search?q=frobnicator');
   assert.equal(parse('yes').intent, 'confirm');
 });
+
+test('voice on/off and stop intents', () => {
+  assert.deepEqual(parse('turn on the voice').action, { kind: 'tts', enabled: true });
+  assert.deepEqual(parse('speak out loud').action, { kind: 'tts', enabled: true });
+  assert.deepEqual(parse('unmute').action, { kind: 'tts', enabled: true });
+  assert.deepEqual(parse('mute').action, { kind: 'tts', enabled: false });
+  assert.deepEqual(parse('voice off').action, { kind: 'tts', enabled: false });
+  assert.deepEqual(parse('be quiet').action, { kind: 'tts-stop' });
+  assert.deepEqual(parse('stop').action, { kind: 'tts-stop' });
+});

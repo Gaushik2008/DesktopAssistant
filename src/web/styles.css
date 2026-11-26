@@ -106,3 +106,5 @@ body.web-preview { background: #14141a; }
 .settings .row { display: flex; gap: 8px; }
 .btn { flex: 1; padding: 7px 10px; border-radius: 8px; border: 0; background: var(--accent); color: #101418; font: 600 12px system-ui, sans-serif; cursor: pointer; }
 .btn.ghost { background: transparent; color: #cfd8e3; border: 1px solid #3a4350; }
+
+.speaker { left: 34px; }

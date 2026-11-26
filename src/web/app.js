@@ -3,6 +3,7 @@ import { platform } from './platform.js';
 import { parse } from './core/intents.js';
 import { IDLE_QUIPS, pick } from './core/personality.js';
 import { PRESETS, validateSettings, trimHistory } from './core/llm.js';
+import { tts } from './tts.js';
 import { runLocalAction } from './local-actions.js';
 import { listen, cancelListening, speechSupported } from './speech.js';
 
@@ -22,8 +23,10 @@ function setState(s) {
   stage.className = `state-${s}`;
 }
 
-function say(text, { ms = 6000, speaking = true } = {}) {
+// `voice`: text to speak aloud (default: the bubble text); pass false for silent bubbles.
+function say(text, { ms = 6000, speaking = true, voice = text } = {}) {
   bubbleText.textContent = text;
+  if (voice) tts.speak(voice);
   bubble.classList.remove('hidden');
   if (speaking) setState('speaking');
   clearTimeout(bubbleTimer);
@@ -43,7 +46,7 @@ $('bubble-close').addEventListener('click', hideBubble);
 function scheduleIdle() {
   clearTimeout(idleTimer);
   idleTimer = setTimeout(() => {
-    if (state === 'idle' && typebox.classList.contains('hidden')) say(pick(IDLE_QUIPS), { ms: 4500 });
+    if (state === 'idle' && typebox.classList.contains('hidden')) say(pick(IDLE_QUIPS), { ms: 4500, voice: false });
     scheduleIdle();
   }, 25000 + Math.random() * 35000);
 }
@@ -75,12 +78,13 @@ async function handleTranscript(text) {
     const local = runLocalAction(res.action, { onAlarm: (msg) => say(msg, { ms: 12000 }) });
     if (local.handled) {
       if (local.reply) reply = local.reply;
+      if (res.action.kind === 'tts') syncSpeaker();
       res = { ...res, action: null };
     }
   }
 
   const heard = res.intent === 'empty' ? '' : `"${text.replace(/[.!?]+$/, '')}." `;
-  say(heard + reply, { ms: 5500 });
+  say(heard + reply, { ms: 5500, voice: reply });
   if (res.action) {
     const out = await platform.execute(res.action);
     if (!out.ok) say(out.message || "I couldn't do that.", { ms: 5000 });
@@ -91,7 +95,8 @@ async function startListening() {
   if (state === 'listening') return stopListening();
   if (!speechSupported()) return openTypebox('Voice is not available here - type a command.');
   setState('listening');
-  say('Listening... (Esc to cancel)', { ms: 15000, speaking: false });
+  tts.stop(); // don't let the mic hear Sir Pixel
+  say('Listening... (Esc to cancel)', { ms: 15000, speaking: false, voice: false });
   try {
     const text = await listen();
     await handleTranscript(text);
@@ -143,7 +148,7 @@ async function askAI(text) {
     return;
   }
   setState('thinking');
-  say('Thinking...', { ms: 30000 });
+  say('Thinking...', { ms: 30000, voice: false });
   const out = await platform.llm.chat(trimHistory(aiHistory), text);
   if (out.ok) {
     aiHistory = trimHistory([...aiHistory, { role: 'user', content: text }, { role: 'assistant', content: out.reply }]);
@@ -191,16 +196,33 @@ settingsForm.addEventListener('submit', async (e) => {
   if (out.ok) { aiHistory = []; setStatus(`Connected: ${out.reply.slice(0, 60)}`, 'ok'); } else setStatus(out.message, 'err');
 });
 
+// ------------------------------------------------------- voice toggle -----
+const speaker = $('speaker');
+function syncSpeaker() {
+  speaker.classList.toggle('hidden', !tts.supported());
+  const on = tts.isEnabled();
+  speaker.textContent = on ? '\u{1F50A}' : '\u{1F507}';
+  speaker.setAttribute('aria-pressed', String(on));
+  speaker.title = on ? 'Spoken replies: on (click to turn off)' : 'Spoken replies: off (click to turn on)';
+}
+speaker.addEventListener('click', () => {
+  const on = tts.setEnabled(!tts.isEnabled());
+  syncSpeaker();
+  say(on ? 'Voice on. I will read my replies aloud.' : 'Voice off.', { ms: 2500 });
+});
+syncSpeaker();
+
 // ------------------------------------------------------------- UI events ----
 mic.addEventListener('click', startListening);
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') {
     if (state === 'listening') stopListening();
+    tts.stop();
     closeTypebox();
     closeSettings();
   }
 });
-pet.addEventListener('dblclick', () => say(pick(IDLE_QUIPS), { ms: 4000 }));
+pet.addEventListener('dblclick', () => say(pick(IDLE_QUIPS), { ms: 4000, voice: false }));
 
 // Dragging the pet (desktop moves the whole window; elsewhere it's a no-op).
 let drag = null;
@@ -216,7 +238,7 @@ pet.addEventListener('pointermove', (e) => {
 pet.addEventListener('pointerup', () => { drag = null; });
 
 // Click-through on desktop: only the pet, mic, bubble and typebox catch the mouse.
-for (const el of [pet, mic, bubble, typebox, settingsForm, gear]) {
+for (const el of [pet, mic, bubble, typebox, settingsForm, gear, speaker]) {
   el.addEventListener('mouseenter', () => platform.setInteractive(true));
   el.addEventListener('mouseleave', () => {
     if (typebox.classList.contains('hidden') && settingsForm.classList.contains('hidden') && document.activeElement !== typeinput) platform.setInteractive(false);
@@ -228,5 +250,5 @@ platform.onToggleListen(startListening);
 platform.onTypeCommand(() => openTypebox());
 
 // ----------------------------------------------------------------- boot ----
-setTimeout(() => say('Ready when you are.', { ms: 3500 }), 600);
+setTimeout(() => say('Ready when you are.', { ms: 3500, voice: false }), 600);
 scheduleIdle();

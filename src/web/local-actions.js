@@ -1,6 +1,8 @@
 // Actions that live entirely in the renderer (no OS access): timers, reminders, notes.
 // State is kept in memory and mirrored to localStorage when available.
 
+import { tts } from './tts.js';
+
 const NOTES_KEY = 'sirpixel.notes';
 const timers = new Set();
 
@@ -57,6 +59,14 @@ export function runLocalAction(action, { onAlarm }) {
     }
     case 'clear-notes':
       save([]);
+      return { handled: true };
+    case 'tts': {
+      if (action.enabled && !tts.supported()) return { handled: true, reply: "Speech isn't supported on this device." };
+      tts.setEnabled(action.enabled);
+      return { handled: true };
+    }
+    case 'tts-stop':
+      tts.stop();
       return { handled: true };
     default:
       return { handled: false };

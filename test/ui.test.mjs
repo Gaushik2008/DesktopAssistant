@@ -33,6 +33,9 @@ window.assistant = {
   setInteractive: () => {},
   moveBy: () => {},
 };
+const spoken = []; let cancels = 0;
+window.speechSynthesis = { speak: (u) => spoken.push(u.text), cancel: () => { cancels++; } };
+window.SpeechSynthesisUtterance = class { constructor(t) { this.text = t; } };
 Object.assign(globalThis, { window, document: window.document, localStorage: window.localStorage });
 
 const $ = (id) => window.document.getElementById(id);
@@ -179,4 +182,52 @@ test('settings: a failed test shows the error; Esc closes the panel', async () =
   assert.equal($('llm-status').className.includes('err'), true);
   window.document.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
   assert.equal($('settings').classList.contains('hidden'), true);
+});
+
+// ------------------------------------------------------- spoken replies ------
+test('voice is off by default: replies are silent and the speaker button shows muted', async () => {
+  spoken.length = 0;
+  assert.equal($('speaker').classList.contains('hidden'), false, 'button visible when TTS is supported');
+  assert.equal($('speaker').getAttribute('aria-pressed'), 'false');
+  await typeCommand('what time is it');
+  assert.deepEqual(spoken, []);
+});
+
+test('speaker button turns voice on; replies are spoken without the command echo', async () => {
+  $('speaker').click();
+  assert.equal($('speaker').getAttribute('aria-pressed'), 'true');
+  spoken.length = 0;
+  await typeCommand("what's 12 times 7");
+  assert.deepEqual(spoken, ['12 times 7 is 84.']);
+  assert.match(bubbleText(), /^"what's 12 times 7\." 12 times 7 is 84\./, 'bubble still shows the echo');
+});
+
+test('AI replies are spoken, "Thinking..." is not', async () => {
+  Object.assign(llmState, { provider: 'ollama', baseUrl: 'http://localhost:11434/v1', model: 'qwen3:4b', hasKey: false });
+  llmChatResult = { ok: true, reply: 'Because air scatters blue light.' };
+  spoken.length = 0;
+  await typeCommand('why is the sky blue');
+  assert.deepEqual(spoken, ['Because air scatters blue light.']);
+});
+
+test('"stop" cancels speech; "voice off" disables it and persists', async () => {
+  const before = cancels;
+  await typeCommand('stop');
+  assert.ok(cancels > before, 'speechSynthesis.cancel called');
+  await typeCommand('voice off');
+  assert.equal($('speaker').getAttribute('aria-pressed'), 'false');
+  assert.match(window.localStorage.getItem('sirpixel.tts'), /"enabled":false/);
+  spoken.length = 0;
+  await typeCommand('what is 2 plus 2');
+  assert.deepEqual(spoken, []);
+});
+
+test('"turn on the voice" works by voice command and starting the mic stops speech', async () => {
+  await typeCommand('turn on the voice');
+  assert.equal($('speaker').getAttribute('aria-pressed'), 'true');
+  assert.equal(window.localStorage.getItem('sirpixel.tts').includes('true'), true);
+  const before = cancels;
+  $('mic').click();
+  await sleep(30);
+  assert.ok(cancels > before, 'speech cancelled when the mic opens');
 });
