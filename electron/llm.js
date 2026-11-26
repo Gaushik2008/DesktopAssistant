@@ -66,7 +66,7 @@ async function chat({ settings, history, text, fetchImpl = globalThis.fetch, tim
   const timer = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
     const res = await fetchImpl(req.url, { method: 'POST', headers: req.headers, body: JSON.stringify(req.body), signal: ctrl.signal });
-    if (!res.ok) return { ok: false, message: friendlyHttpError(res.status, host) };
+    if (!res.ok) return { ok: false, message: friendlyHttpError(res.status, host), status: res.status };
     const reply = extractReply(await res.json());
     return reply ? { ok: true, reply } : { ok: false, message: 'The AI sent an empty answer.' };
   } catch (e) {
@@ -99,4 +99,31 @@ async function transcribe({ settings, base64, mime = 'audio/wav', fetchImpl = gl
   }
 }
 
-module.exports = { createStore, chat, transcribe, DEFAULTS };
+/** Ask Google which models this key can use and pick the best Flash one (null if none/failed). */
+async function pickGeminiModel({ apiKey, fetchImpl = globalThis.fetch }) {
+  const { chooseGeminiModel } = await core();
+  try {
+    const res = await fetchImpl('https://generativelanguage.googleapis.com/v1beta/models?pageSize=200', { headers: { 'x-goog-api-key': apiKey } });
+    if (!res.ok) return null;
+    return chooseGeminiModel((await res.json()).models);
+  } catch { return null; }
+}
+
+/**
+ * Run a Gemini call; if the model name is rejected (404), discover a valid one, save it and retry once.
+ * `run(rawSettings)` must return the chat()/transcribe() result shape.
+ */
+async function withModelRecovery(run, store, fetchImpl = globalThis.fetch) {
+  const out = await run(store.getRaw());
+  if (out.ok || !(out.status === 404 || out.code === 'badmodel')) return out;
+  const raw = store.getRaw();
+  const { isGemini } = await core();
+  if (!raw.apiKey || !isGemini(raw)) return out;
+  const model = await pickGeminiModel({ apiKey: raw.apiKey, fetchImpl });
+  if (!model || model === raw.model) return out;
+  store.save({ model });
+  const again = await run(store.getRaw());
+  return again.ok ? { ...again, model } : out;
+}
+
+module.exports = { createStore, chat, transcribe, pickGeminiModel, withModelRecovery, DEFAULTS };

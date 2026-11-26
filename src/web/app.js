@@ -203,7 +203,11 @@ settingsForm.addEventListener('submit', async (e) => {
   if (!v.ok) { setStatus(v.error, 'err'); return; }
   setStatus('Testing...');
   const out = await platform.llm.chat([], 'Say hello in five words.');
-  if (out.ok) { aiHistory = []; setStatus(`Connected: ${out.reply.slice(0, 60)}`, 'ok'); } else setStatus(out.message, 'err');
+  if (out.ok) {
+    aiHistory = [];
+    if (out.model) fModel.value = out.model; // model was auto-corrected by the main process
+    setStatus(`Connected${out.model ? ` (using ${out.model})` : ''}: ${out.reply.slice(0, 50)}`, 'ok');
+  } else setStatus(out.message, 'err');
 });
 
 // ------------------------------------------------------- voice toggle -----

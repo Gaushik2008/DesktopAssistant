@@ -196,6 +196,8 @@ Pipeline (`src/web/recorder.js` → `speech.js` → main process → Gemini `gen
 
 Fallback order in `speech.js`: Gemini → Android native recogniser (if Gemini fails on a phone) → Web Speech (real Chrome only) → typed box (`Ctrl+Alt+T`). Errors are specific: missing/invalid key and wrong model reopen the settings panel; quota, network, mic-denied and no-mic show a clear bubble and the typed box.
 
+**Wrong model name (HTTP 404)?** Gemini model names change often. If Google rejects the saved model, Sir Pixel asks Google which models your key can use (`ListModels`), picks the newest plain *Flash*, saves it and retries automatically — the settings panel then shows *Connected (using …)*. This runs for both chat and voice on desktop; on Android, enter a model name manually.
+
 Privacy/cost: audio is sent only while the red *Listening* state is shown, nothing is saved to disk; each command is one short Gemini request (plus one chat request when no command matches). Model is editable; default `gemini-flash-latest`.
 
 ## Always on top

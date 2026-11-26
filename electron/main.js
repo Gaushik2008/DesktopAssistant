@@ -147,13 +147,14 @@ ipcMain.handle('llm:get-settings', () => store().get());
 ipcMain.handle('llm:save-settings', (_e, input) => (isObj(input) ? store().save(input) : store().get()));
 ipcMain.handle('llm:chat', (_e, req) => {
   if (!isObj(req)) return { ok: false, message: 'Bad request.' };
-  return llm.chat({ settings: store().getRaw(), history: Array.isArray(req.history) ? req.history : [], text: req.text });
+  const history = Array.isArray(req.history) ? req.history : [];
+  return llm.withModelRecovery((settings) => llm.chat({ settings, history, text: req.text }), store());
 });
 
 // Speech-to-text (Gemini). Audio comes from the renderer; the key stays here.
 ipcMain.handle('stt:transcribe', (_e, req) => {
   if (!isObj(req)) return { ok: false, code: 'error', message: 'Bad request.' };
-  return llm.transcribe({ settings: store().getRaw(), base64: req.base64, mime: req.mime });
+  return llm.withModelRecovery((settings) => llm.transcribe({ settings, base64: req.base64, mime: req.mime }), store());
 });
 
 ipcMain.handle('platform', () => PLATFORM);

@@ -132,3 +132,21 @@ export function checkSttReady(settings, base64) {
   if (typeof base64 !== 'string' || !base64 || base64.length > 14 * 1024 * 1024) return { ok: false, code: 'error', message: 'Bad audio clip.' };
   return null;
 }
+
+// ------------------------------------------------------------ model discovery ----
+// Gemini model names change often and a wrong one gives HTTP 404. When that happens we ask
+// Google (ListModels) which models this key can use and pick the newest plain "Flash".
+
+/** @param {Array<{name:string, supportedGenerationMethods?:string[]}>} models raw ListModels entries */
+export function chooseGeminiModel(models) {
+  const usable = (models || [])
+    .filter((m) => m && typeof m.name === 'string' && (m.supportedGenerationMethods || ['generateContent']).includes('generateContent'))
+    .map((m) => m.name.replace(/^models\//, ''));
+  const score = (id, re) => { const m = id.match(re); return m ? parseFloat(m[1]) : null; };
+  const tiers = [/^gemini-(\d+(?:\.\d+)?)-flash$/, /^gemini-(\d+(?:\.\d+)?)-flash-lite$/, /^gemini-(\d+(?:\.\d+)?)-flash-(?:preview|latest)/];
+  for (const re of tiers) {
+    const best = usable.map((id) => ({ id, v: score(id, re) })).filter((x) => x.v !== null).sort((a, b) => b.v - a.v)[0];
+    if (best) return best.id;
+  }
+  return null;
+}
