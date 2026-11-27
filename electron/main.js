@@ -68,6 +68,16 @@ function createWindow() {
   setInterval(keepOnTop, 3000);
   win.loadFile(path.join(__dirname, '..', 'src', 'web', 'index.html'));
   win.once('ready-to-show', () => win.show());
+  if (process.env.SIRPIXEL_DEBUG) {
+    const log = (...a) => console.error('[sirpixel]', ...a);
+    log('session', process.env.XDG_SESSION_TYPE, 'ozone', app.commandLine.getSwitchValue('ozone-platform') || '(default)', 'electron', process.versions.electron);
+    win.once('ready-to-show', () => log('ready-to-show; bounds', JSON.stringify(win.getBounds()), 'onTop', win.isAlwaysOnTop()));
+    win.webContents.on('did-finish-load', () => log('page loaded'));
+    win.webContents.on('console-message', (_e, lvl, msg) => lvl >= 2 && log('renderer:', msg));
+    win.webContents.on('render-process-gone', (_e, d) => log('renderer gone', d.reason));
+    win.on('closed', () => log('window closed'));
+    app.on('child-process-gone', (_e, d) => log('child gone', d.type, d.reason));
+  }
 
   // Never navigate away or open child windows from the renderer.
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
