@@ -50,8 +50,6 @@ function scheduleIdle() {
   idleTimer = setTimeout(() => {
     if (state === 'idle' && typebox.classList.contains('hidden')) say(pick(IDLE_QUIPS), { ms: 4500, voice: false });
     scheduleIdle();
-syncEar();
-startHandsFree();
   }, 25000 + Math.random() * 35000);
 }
 
@@ -153,6 +151,8 @@ async function reportListenError(e) {
 // executed. NOTE: with the Gemini engine each detected utterance is sent for transcription, so
 // ambient speech near the mic leaves the device. Turn it off with the ear button or "stop listening".
 const HF_KEY = 'sirpixel.handsfree';
+const HF_KEY_ERRORS = new Set(['nokey', 'nogemini', 'badkey', 'badmodel']);
+let hfPaused = false; // paused only because the Gemini key/model is unusable; resumes after a good save
 const HF_FATAL = new Set(['nokey', 'nogemini', 'badkey', 'badmodel', 'quota', 'denied', 'no-mic', 'unsupported']);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 let handsFree = (() => { try { const v = localStorage.getItem(HF_KEY); return v === null ? true : v === '1'; } catch { return true; } })();
@@ -175,6 +175,12 @@ function setHandsFree(on) {
 
 async function startHandsFree() {
   if (hfLoop || !handsFree || !speechSupported()) return;
+  // No key yet: don't record ambient speech just to fail; wait until settings are saved.
+  if (platform.stt && platform.llm) {
+    const cfg = await platform.llm.getSettings().catch(() => null);
+    if (cfg && !cfg.hasKey) { hfPaused = true; handsFree = false; syncEar(); return; }
+    if (hfLoop || !handsFree) return;
+  }
   hfLoop = true;
   let errors = 0;
   try {
@@ -192,7 +198,8 @@ async function startHandsFree() {
         if (e.code === 'cancelled' || e.code === 'no-speech') { await sleep(150); continue; }
         if (HF_FATAL.has(e.code)) {
           handsFree = false;
-          try { localStorage.setItem(HF_KEY, '0'); } catch { /* ignore */ }
+          hfPaused = HF_KEY_ERRORS.has(e.code);
+          if (!hfPaused) { try { localStorage.setItem(HF_KEY, '0'); } catch { /* ignore */ } }
           syncEar();
           await reportListenError(e);
           break;
@@ -305,6 +312,7 @@ settingsForm.addEventListener('submit', async (e) => {
     aiHistory = [];
     if (out.model) fModel.value = out.model; // model was auto-corrected by the main process
     setStatus(`Connected${out.model ? ` (using ${out.model})` : ''}: ${out.reply.slice(0, 50)}`, 'ok');
+    if (hfPaused) { hfPaused = false; setHandsFree(true); }
   } else setStatus(out.message, 'err');
 });
 

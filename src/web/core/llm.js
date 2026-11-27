@@ -38,6 +38,20 @@ export function validateSettings(s) {
   return { ok: true };
 }
 
+/** Strip whitespace, zero-width/smart-quote junk and wrapping quotes from a pasted API key.
+ *  A single non-ASCII character in a header makes fetch() throw, which looked like "can't reach Gemini". */
+export function cleanKey(k) {
+  if (typeof k !== 'string') return '';
+  return k.replace(/[^\x21-\x7E]/g, '').replace(/^["'`]+|["'`]+$/g, '');
+}
+
+/** Human-readable message from a Google/OpenAI-style error body ('' if none). */
+export function errorDetail(json) {
+  const e = json && (Array.isArray(json) ? json[0] : json).error;
+  const m = e && typeof e.message === 'string' ? e.message : '';
+  return m.replace(/\s+/g, ' ').trim().slice(0, 200);
+}
+
 export function trimHistory(history, max = MAX_TURNS_MESSAGES) {
   const clean = (history || []).filter((m) => m && (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string');
   return clean.slice(-max);
@@ -49,14 +63,15 @@ export function buildRequest(settings, history, userText) {
   // Qwen3 "thinking" models: the /no_think soft switch keeps replies fast and short.
   const content = /qwen3/i.test(model) ? `${userText} /no_think` : userText;
   const headers = { 'Content-Type': 'application/json' };
-  if (settings.apiKey) headers.Authorization = `Bearer ${settings.apiKey}`;
+  const key = cleanKey(settings.apiKey);
+  if (key) headers.Authorization = `Bearer ${key}`;
   return {
     url: `${settings.baseUrl.replace(/\/+$/, '')}/chat/completions`,
     headers,
     body: {
       model,
       messages: [{ role: 'system', content: SYSTEM_PROMPT }, ...trimHistory(history), { role: 'user', content }],
-      max_tokens: 300,
+      max_tokens: isGemini(settings) ? 1024 : 300,
       temperature: 0.7,
       stream: false,
     },
@@ -73,8 +88,9 @@ export function extractReply(json) {
   return text;
 }
 
-export function friendlyHttpError(status, host) {
-  if (status === 401 || status === 403) return 'The API key was rejected. Check it in settings.';
+export function friendlyHttpError(status, host, detail = '') {
+  if (status === 401 || status === 403 || (status === 400 && /api[_ ]?key/i.test(detail))) return 'The API key was rejected. Check it in settings.';
+  if (status === 400 && detail) return `The AI service rejected the request: ${detail}`;
   if (status === 404) return 'Endpoint or model not found. Check the base URL and model name.';
   if (status === 429) return 'Rate limited. Try again in a moment.';
   if (status >= 500) return `${host} had a server error. Try again later.`;
@@ -97,13 +113,13 @@ export function buildTranscribeRequest(settings, base64, mime = 'audio/wav') {
   const model = String(settings.model || PRESETS.gemini.model).trim().replace(/^models\//, '');
   return {
     url: `https://${GEMINI_HOST}/v1beta/models/${encodeURIComponent(model)}:generateContent`,
-    headers: { 'Content-Type': 'application/json', 'x-goog-api-key': settings.apiKey }, // key in a header, never the URL
+    headers: { 'Content-Type': 'application/json', 'x-goog-api-key': cleanKey(settings.apiKey) }, // key in a header, never the URL
     body: {
       contents: [{ parts: [
         { text: 'Transcribe this short spoken voice command exactly as spoken. Reply with ONLY the transcript text, no quotes or commentary. If there is no intelligible speech, reply with exactly: [silence]' },
         { inline_data: { mime_type: mime, data: base64 } },
       ] }],
-      generationConfig: { temperature: 0, maxOutputTokens: 120 },
+      generationConfig: { temperature: 0, maxOutputTokens: 1024 },
     },
   };
 }
@@ -118,7 +134,8 @@ export function extractTranscript(json) {
 }
 
 /** STT-specific error codes the UI reacts to: nokey -> open settings, badkey, quota, network. */
-export function sttErrorFromStatus(status) {
+export function sttErrorFromStatus(status, detail = '') {
+  if (status === 400 && detail && !/api[_ ]?key/i.test(detail)) return { code: 'error', message: `Gemini rejected the request: ${detail}` };
   if (status === 400 || status === 401 || status === 403) return { code: 'badkey', message: 'Gemini rejected the API key. Check it in settings.' };
   if (status === 404) return { code: 'badmodel', message: 'Gemini model not found. Check the model name in settings.' };
   if (status === 429) return { code: 'quota', message: 'Gemini is rate-limiting me. Try again in a moment.' };
@@ -128,7 +145,7 @@ export function sttErrorFromStatus(status) {
 /** Shared validation for transcribe(): returns an {ok:false,...} result or null when fine. */
 export function checkSttReady(settings, base64) {
   if (!isGemini(settings)) return { ok: false, code: 'nogemini', message: 'Voice needs Google Gemini. Choose "Google Gemini" in settings and add your API key.' };
-  if (!settings.apiKey) return { ok: false, code: 'nokey', message: 'Add your Gemini API key to enable voice.' };
+  if (!cleanKey(settings.apiKey)) return { ok: false, code: 'nokey', message: 'Add your Gemini API key to enable voice.' };
   if (typeof base64 !== 'string' || !base64 || base64.length > 14 * 1024 * 1024) return { ok: false, code: 'error', message: 'Bad audio clip.' };
   return null;
 }

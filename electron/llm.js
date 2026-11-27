@@ -8,6 +8,13 @@ const path = require('path');
 let corePromise;
 const core = () => (corePromise ||= import('../src/web/core/llm.js'));
 
+const sanitizeKey = (k) => String(k || '').replace(/[^\x21-\x7E]/g, '').replace(/^["'`]+|["'`]+$/g, '');
+const normUrl = (u) => String(u || '').trim().replace(/\/+$/, '');
+/** Google/OpenAI error text from a failed response ('' if the body isn't JSON). */
+async function readDetail(res) {
+  try { const { errorDetail } = await core(); return typeof res.json === 'function' ? errorDetail(await res.json()) : ''; } catch { return ''; }
+}
+
 const DEFAULTS = { provider: 'gemini', baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai', model: 'gemini-flash-latest' };
 
 function createStore({ file, safeStorage }) {
@@ -28,12 +35,12 @@ function createStore({ file, safeStorage }) {
     /** Safe for the renderer: never includes the key. */
     get() {
       const d = { ...DEFAULTS, ...read() };
-      return { provider: d.provider, baseUrl: d.baseUrl, model: d.model, hasKey: Boolean(d.key) };
+      return { provider: d.provider, baseUrl: d.baseUrl, model: d.model, hasKey: Boolean(decrypt(d.key)) };
     },
     /** Main process only. */
     getRaw() {
       const d = { ...DEFAULTS, ...read() };
-      return { provider: d.provider, baseUrl: d.baseUrl, model: d.model, apiKey: decrypt(d.key), hasKey: Boolean(d.key) };
+      return { provider: d.provider, baseUrl: d.baseUrl, model: d.model, apiKey: decrypt(d.key), hasKey: Boolean(decrypt(d.key)) };
     },
     save(input) {
       const cur = { ...DEFAULTS, ...read() };
@@ -44,8 +51,8 @@ function createStore({ file, safeStorage }) {
         key: cur.key,
       };
       // Pointing the saved key at a different server must not leak it: drop it unless a new key comes with the change.
-      if (next.baseUrl !== cur.baseUrl && !input.apiKey) next.key = undefined;
-      if (typeof input.apiKey === 'string' && input.apiKey.trim()) next.key = encrypt(input.apiKey.trim());
+      if (normUrl(next.baseUrl) !== normUrl(cur.baseUrl) && !input.apiKey) next.key = undefined;
+      if (typeof input.apiKey === 'string' && sanitizeKey(input.apiKey)) next.key = encrypt(sanitizeKey(input.apiKey));
       if (input.clearKey) next.key = undefined;
       fs.mkdirSync(path.dirname(file), { recursive: true });
       fs.writeFileSync(file, JSON.stringify(next), { mode: 0o600 });
@@ -66,7 +73,7 @@ async function chat({ settings, history, text, fetchImpl = globalThis.fetch, tim
   const timer = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
     const res = await fetchImpl(req.url, { method: 'POST', headers: req.headers, body: JSON.stringify(req.body), signal: ctrl.signal });
-    if (!res.ok) return { ok: false, message: friendlyHttpError(res.status, host), status: res.status };
+    if (!res.ok) return { ok: false, message: friendlyHttpError(res.status, host, await readDetail(res)), status: res.status };
     const reply = extractReply(await res.json());
     return reply ? { ok: true, reply } : { ok: false, message: 'The AI sent an empty answer.' };
   } catch (e) {
@@ -87,7 +94,7 @@ async function transcribe({ settings, base64, mime = 'audio/wav', fetchImpl = gl
   const timer = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
     const res = await fetchImpl(req.url, { method: 'POST', headers: req.headers, body: JSON.stringify(req.body), signal: ctrl.signal });
-    if (!res.ok) return { ok: false, ...sttErrorFromStatus(res.status) };
+    if (!res.ok) return { ok: false, ...sttErrorFromStatus(res.status, await readDetail(res)) };
     const text = extractTranscript(await res.json());
     if (text === null) return { ok: false, code: 'error', message: 'Gemini sent an unreadable answer.' };
     return text ? { ok: true, text } : { ok: false, code: 'no-speech', message: "I didn't catch that." };
