@@ -75,3 +75,12 @@ _Last updated: 2026-11-27_
 - **STT engine choice (offline/private voice)**: Added settings UI (radio buttons) to choose STT engine: Google Gemini (cloud), Web Speech API (browser), Android native (on-device), Local Whisper.cpp (stub, coming soon). Choice persisted in `localStorage` (`sirpixel.stt`). `platform.getSttEngine()/setSttEngine()` for cross-platform access. `speech.js listen()` respects engine priority with fallbacks. Local engine returns `unsupported`.
 - **UI tests**: Added jsdom integration tests for ear button (hands-free toggle), STT engine radio buttons, mic click fallback, Escape key handling.
 - All VAD tests pass; e2e sentence and handsfree tests pass; full suite 69/70 pass (1 UI test has pre-existing Node.js/undici zstd compat issue).
+
+## 2026-11-27 (later) - Test stability & Linux Wayland fixes
+
+- **ear button test fixed**: The `ear button toggles hands-free mode and persists` test was failing because `speechSupported()` returned false in jsdom. Root cause: `speechSupported()` in `src/web/speech.js` checks `navigator.mediaDevices.getUserMedia` (for `canRecord()`) and `navigator.userAgent.includes('Electron')` to gate Web Speech API. The test's jsdom setup now mocks `navigator.mediaDevices.getUserMedia` so speech detection works without a real mic. Test suite: 94/94 pass.
+- **electron/main.js Wayland auto-detect**: Changed from forcing `ozone-platform=x11` to auto-detecting native Wayland when `XDG_SESSION_TYPE=wayland` or `WAYLAND_DISPLAY` is set (overridable via `SIRPIXEL_OZONE=x11`). This fixes the transparent always-on-top window on Wayland compositors.
+- **electron/llm.js safeStorage migration**: Replaced deprecated `safeStorage.decryptString` with `safeStorage.decryptStringAsync` (with sync fallback for older Electron). `createStore.get()/getRaw()` are now async; tests updated accordingly.
+- **scripts/diagnose-linux.sh**: New diagnostic script that prints session type, GPU info, and runs 5-second launch tests for Wayland/X11/GPU modes.
+- **README**: Added "Linux Wayland troubleshooting" section with common fixes and diagnostic script reference.
+- **Full suite**: 94/94 tests pass. NOT verified: live Gemini call, real microphone input, Wayland on real hardware (only CI/sandbox), APK on a physical device.

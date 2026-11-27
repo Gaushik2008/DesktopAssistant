@@ -284,6 +284,12 @@ To enable it, copy the file to `.github/workflows/ci.yml` (pushing workflow file
 - Live Gemini transcription has only been tested against mocked responses, not the real API (no key in the build sandbox).
 - macOS works best-effort but is not an official target.
 
+### Linux Wayland troubleshooting
+- **Window closes immediately / transparent window not showing:** DO.IT now auto-detects Wayland sessions and uses native Wayland (Ozone platform) instead of XWayland. If you still see issues, force X11 with `SIRPIXEL_OZONE=x11 npm start`.
+- **GPU process crashes (VAAPI too old):** DO.IT defaults to software rendering on Linux. To enable GPU, run `SIRPIXEL_GPU=1 npm start`.
+- **Debug logs:** Run `SIRPIXEL_DEBUG=1 npm start` to see session type, Ozone platform, and window lifecycle events.
+- **Diagnose script:** Run `bash scripts/diagnose-linux.sh` for a full diagnostic report (session type, GPU info, launch tests for Wayland/X11/GPU modes).
+
 ## Roadmap
 - [x] jsdom UI integration tests
 - [ ] Real-browser (Playwright) end-to-end tests in CI
