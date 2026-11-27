@@ -59,6 +59,47 @@ test('no recovery for other errors, non-Gemini hosts, missing key, or failed dis
   assert.equal(store.current().model, 'gemini-flash-latest', 'model must not change when discovery fails');
 });
 
+test('400 with bad API key message does NOT trigger model recovery (chat)', async () => {
+  const store = fakeStore(gem);
+  const seen = [];
+  const run = async (s) => { seen.push(s.model); return { ok: false, message: 'The API key was rejected. Check it in settings.', status: 400 }; };
+  const out = await withModelRecovery(run, store, listFetch(LIST));
+  assert.deepEqual(seen, ['gemini-flash-latest'], 'should not retry on bad key');
+  assert.equal(out.status, 400);
+  assert.equal(store.current().model, 'gemini-flash-latest');
+});
+
+test('400 with bad API key code does NOT trigger model recovery (STT)', async () => {
+  const store = fakeStore(gem);
+  const seen = [];
+  const run = async (s) => { seen.push(s.model); return { ok: false, code: 'badkey', message: 'Gemini rejected the API key. Check it in settings.' }; };
+  const out = await withModelRecovery(run, store, listFetch(LIST));
+  assert.deepEqual(seen, ['gemini-flash-latest'], 'should not retry on bad key');
+  assert.equal(out.code, 'badkey');
+  assert.equal(store.current().model, 'gemini-flash-latest');
+});
+
+test('400 unsupported model DOES trigger model recovery', async () => {
+  const store = fakeStore(gem);
+  const seen = [];
+  const run = async (s) => { seen.push(s.model); return s.model === 'gemini-3.6-flash' ? { ok: true, reply: 'hi' } : { ok: false, message: 'The AI service rejected the request: model not supported', status: 400 }; };
+  const out = await withModelRecovery(run, store, listFetch(LIST));
+  assert.deepEqual(seen, ['gemini-flash-latest', 'gemini-3.6-flash'], 'should retry on unsupported model');
+  assert.equal(out.ok, true);
+  assert.equal(out.model, 'gemini-3.6-flash');
+  assert.equal(store.current().model, 'gemini-3.6-flash');
+});
+
+test('500 server error DOES trigger model recovery', async () => {
+  const store = fakeStore(gem);
+  const seen = [];
+  const run = async (s) => { seen.push(s.model); return s.model === 'gemini-3.6-flash' ? { ok: true, reply: 'hi' } : { ok: false, message: 'server error', status: 500 }; };
+  const out = await withModelRecovery(run, store, listFetch(LIST));
+  assert.deepEqual(seen, ['gemini-flash-latest', 'gemini-3.6-flash'], 'should retry on 500');
+  assert.equal(out.ok, true);
+  assert.equal(out.model, 'gemini-3.6-flash');
+});
+
 test('pickGeminiModel sends the key in a header, not the URL', async () => {
   let url, init;
   await pickGeminiModel({ apiKey: 'SECRET', fetchImpl: async (u, i) => { url = u; init = i; return { ok: true, json: async () => ({ models: LIST }) }; } });

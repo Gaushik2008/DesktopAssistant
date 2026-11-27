@@ -78,7 +78,9 @@ export function buildRequest(settings, history, userText) {
   };
 }
 
-/** Pull the assistant text out of a chat-completions response; strips <think> blocks. */
+/** Pull the assistant text out of a chat-completions response; strips
+
+blocks. */
 export function extractReply(json) {
   const raw = json && json.choices && json.choices[0] && json.choices[0].message && json.choices[0].message.content;
   if (typeof raw !== 'string') return null;

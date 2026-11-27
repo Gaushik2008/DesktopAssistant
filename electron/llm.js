@@ -117,12 +117,16 @@ async function pickGeminiModel({ apiKey, fetchImpl = globalThis.fetch }) {
 }
 
 /**
- * Run a Gemini call; if the model name is rejected (404), discover a valid one, save it and retry once.
+ * Run a Gemini call; if the model name is rejected (400/404/500 without bad-key indication), discover a valid one, save it and retry once.
  * `run(rawSettings)` must return the chat()/transcribe() result shape.
  */
 async function withModelRecovery(run, store, fetchImpl = globalThis.fetch) {
   const out = await run(store.getRaw());
-  if (out.ok || !(out.status === 404 || out.code === 'badmodel')) return out;
+  // Do NOT retry on bad API key: chat returns "API key was rejected" in message, transcribe returns code='badkey'
+  const isBadKey = out.code === 'badkey' || /api key was rejected/i.test(out.message || '');
+  // Trigger model recovery on model-related errors: 400 (invalid model), 404 (not found), 500 (server error) — but NOT on bad key
+  const isModelError = (out.status === 400 || out.status === 404 || out.status >= 500 || out.code === 'badmodel') && !isBadKey;
+  if (out.ok || !isModelError) return out;
   const raw = store.getRaw();
   const { isGemini } = await core();
   if (!raw.apiKey || !isGemini(raw)) return out;
