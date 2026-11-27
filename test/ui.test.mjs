@@ -22,6 +22,7 @@ const llmCalls = { chat: [], saved: [] };
 let llmChatResult = { ok: true, reply: 'Because air scatters blue light.' };
 window.assistant = {
   platform: 'linux',
+  stt: true, // mock STT for speechSupported() check
   llm: {
     getSettings: async () => ({ ...llmState }),
     saveSettings: async (input) => { llmCalls.saved.push(input); Object.assign(llmState, { provider: input.provider, baseUrl: input.baseUrl, model: input.model }); if (input.apiKey) llmState.hasKey = true; return { ...llmState }; },
@@ -36,6 +37,10 @@ window.assistant = {
 const spoken = []; let cancels = 0;
 window.speechSynthesis = { speak: (u) => spoken.push(u.text), cancel: () => { cancels++; } };
 window.SpeechSynthesisUtterance = class { constructor(t) { this.text = t; } };
+// Mock mediaDevices for canRecord() check in speechSupported()
+window.navigator.mediaDevices = { getUserMedia: async () => {} };
+// Also set on global navigator if it exists
+if (typeof navigator !== 'undefined') navigator.mediaDevices = { getUserMedia: async () => {} };
 Object.assign(globalThis, { window, document: window.document, localStorage: window.localStorage });
 
 const $ = (id) => window.document.getElementById(id);
