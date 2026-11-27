@@ -8,8 +8,8 @@
   "license": "MIT",
   "author": "Gaushik2008",
   "scripts": {
-    "start": "node launch-electron.js .",
-    "dev": "node launch-electron.js . --dev",
+    "start": "electron .",
+    "dev": "electron . --dev",
     "web": "node scripts/serve-web.js",
     "test": "node --test \"test/*.test.mjs\"",
     "e2e:handsfree": "node scripts/e2e-handsfree.cjs",
@@ -32,7 +32,7 @@
     "@capacitor/cli": "^7.0.0",
     "electron": "^45.5.0",
     "electron-builder": "^26.18.0",
-    "jsdom": "^31.0.1"
+    "jsdom": "^25.0.1"
   },
   "build": {
     "appId": "com.gaushik.desktopassistant",
