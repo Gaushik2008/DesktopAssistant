@@ -34,16 +34,16 @@ test('error details: bad-key 400s stay "key rejected", other 400s show Google\'s
   assert.equal(sttErrorFromStatus(400, 'API key not valid').code, 'badkey');
 });
 
-test('store: unreadable key is not reported as saved; trailing slash keeps the key; pasted key is cleaned', () => {
+test('store: unreadable key is not reported as saved; trailing slash keeps the key; pasted key is cleaned', async () => {
   const file = join(mkdtempSync(join(tmpdir(), 'sp-')), 'llm.json');
   let broken = false;
   const safeStorage = { isEncryptionAvailable: () => true, encryptString: (s) => Buffer.from(`ENC(${s})`),
     decryptString: (b) => { if (broken) throw new Error('keyring changed'); return b.toString().slice(4, -1); } };
   const store = createStore({ file, safeStorage });
-  store.save({ provider: 'gemini', baseUrl: PRESETS.gemini.baseUrl, model: 'm', apiKey: ' "AIza-key\u200B"\n' });
-  assert.equal(store.getRaw().apiKey, 'AIza-key');
-  store.save({ baseUrl: `${PRESETS.gemini.baseUrl}/` }); // cosmetic URL change must not drop the key
-  assert.equal(store.getRaw().apiKey, 'AIza-key');
+  await store.save({ provider: 'gemini', baseUrl: PRESETS.gemini.baseUrl, model: 'm', apiKey: ' "AIza-key\u200B"\n' });
+  assert.equal((await store.getRaw()).apiKey, 'AIza-key');
+  await store.save({ baseUrl: `${PRESETS.gemini.baseUrl}/` }); // cosmetic URL change must not drop the key
+  assert.equal((await store.getRaw()).apiKey, 'AIza-key');
   broken = true;
-  assert.equal(store.get().hasKey, false);
+  assert.equal((await store.get()).hasKey, false);
 });
