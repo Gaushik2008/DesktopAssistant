@@ -40,9 +40,19 @@
       <label>API key <input id="llm-key" type="password" spellcheck="false" autocomplete="off" /></label>
       <p id="llm-status" class="status" role="status"></p>
       <div class="row">
-        <button type="submit" class="btn">Save &amp; test</button>
+        <button type="submit" class="btn">Save & test</button>
         <button type="button" id="llm-close" class="btn ghost">Close</button>
       </div>
+
+      <h2>Speech-to-text</h2>
+      <fieldset id="stt-engine-fieldset">
+        <legend>STT engine</legend>
+        <label><input type="radio" name="stt-engine" value="gemini" /> Google Gemini (cloud, requires API key)</label>
+        <label><input type="radio" name="stt-engine" value="web-speech" /> Web Speech API (browser, no key)</label>
+        <label><input type="radio" name="stt-engine" value="android-native" /> Android native (on-device)</label>
+        <label><input type="radio" name="stt-engine" value="local" disabled /> Local (Whisper.cpp via Tauri sidecar, coming soon)</label>
+      </fieldset>
+      <p id="stt-status" class="status" role="status"></p>
     </form>
 
     <!-- the pet -->

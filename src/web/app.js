@@ -277,14 +277,21 @@ async function askAI(text) {
 // ---------------------------------------------------------- AI settings -----
 const settingsForm = $('settings'), gear = $('gear');
 const fProvider = $('llm-provider'), fUrl = $('llm-url'), fModel = $('llm-model'), fKey = $('llm-key'), fStatus = $('llm-status');
+const fSttEngine = document.querySelectorAll('input[name="stt-engine"]');
+const fSttStatus = $('stt-status');
 
 function setStatus(msg, kind = '') { fStatus.textContent = msg; fStatus.className = `status ${kind}`.trim(); }
+function setSttStatus(msg, kind = '') { fSttStatus.textContent = msg; fSttStatus.className = `status ${kind}`.trim(); }
 
 async function openSettings() {
   if (!platform.llm) { say('AI chat works in the desktop and Android apps.', { ms: 4000 }); return; }
   const cur = await platform.llm.getSettings();
   fProvider.value = cur.provider; fUrl.value = cur.baseUrl || ''; fModel.value = cur.model || ''; fKey.value = '';
   setStatus(cur.hasKey ? 'A key is saved. Leave blank to keep it.' : '');
+  // STT engine
+  const sttEngine = await platform.getSttEngine?.();
+  for (const radio of fSttEngine) radio.checked = radio.value === sttEngine;
+  setSttStatus('');
   settingsForm.classList.remove('hidden');
   platform.setInteractive(true);
   fModel.focus();
@@ -297,6 +304,14 @@ fProvider.addEventListener('change', () => {
   const p = PRESETS[fProvider.value];
   if (p && fProvider.value !== 'custom') { fUrl.value = p.baseUrl; fModel.value = p.model; }
 });
+for (const radio of fSttEngine) {
+  radio.addEventListener('change', async () => {
+    if (!radio.checked) return;
+    setSttStatus('Saving...');
+    await platform.setSttEngine(radio.value);
+    setSttStatus(`STT engine set to ${radio.value}`, 'ok');
+  });
+}
 settingsForm.addEventListener('submit', async (e) => {
   e.preventDefault();
   setStatus('Saving...');

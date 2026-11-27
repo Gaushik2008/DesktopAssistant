@@ -1,9 +1,9 @@
-// Speech-to-text, in priority order:
-//   1. Gemini   - record mic -> 16 kHz WAV -> platform.stt.transcribe (desktop main process /
-//                 Android native HTTP; the API key never touches the renderer on desktop)
-//   2. Android native recognizer (Capacitor) - fallback when Gemini isn't available
-//   3. Web Speech API - real Chrome/Edge only. It does NOT work in Electron (Chromium there has no
-//      Google speech keys) - that was the old "voice recognition is unavailable here" bug.
+// Speech-to-text, in priority order (user configurable via settings):
+//   1. gemini       - record mic -> 16 kHz WAV -> platform.stt.transcribe (desktop main process /
+//                     Android native HTTP; the API key never touches the renderer on desktop)
+//   2. web-speech   - Web Speech API (browser, no key). Does NOT work in Electron.
+//   3. android-native - Android on-device recognizer (Capacitor SpeechRecognition plugin)
+//   4. local        - Whisper.cpp via Tauri sidecar (coming soon)
 //
 // listen({onLevel}) resolves with the transcript, or rejects with Error.code:
 //   'nokey' | 'nogemini' | 'badkey' | 'badmodel' | 'quota' | 'network' | 'denied' | 'no-mic' |
@@ -30,15 +30,77 @@ const canRecord = () => Boolean(navigator.mediaDevices?.getUserMedia);
 
 /** True when at least one speech path exists (Gemini pipeline counts: it asks for a key if missing). */
 export function speechSupported() {
+  const engine = platform.getSttEngine?.() || 'gemini';
+  if (engine === 'gemini') return Boolean(platform.stt && canRecord());
+  if (engine === 'web-speech') return Boolean(webSpeech());
+  if (engine === 'android-native') return Boolean(isNative() && capPlugin());
+  if (engine === 'local') return false; // not implemented yet
   return Boolean((platform.stt && canRecord()) || (isNative() && capPlugin()) || webSpeech());
 }
 
 export async function listen({ onLevel = () => {}, lang = 'en-US', passive = false } = {}) {
+  const engine = platform.getSttEngine?.() || 'gemini';
+
+  // Try the selected engine first
+  if (engine === 'gemini') {
+    if (platform.stt && canRecord()) {
+      try {
+        return await listenGemini(onLevel, passive);
+      } catch (e) {
+        // Gemini unusable on a phone -> fall back to the on-device recognizer instead of failing.
+        const gemini = ['nokey', 'nogemini', 'badkey', 'badmodel', 'network'].includes(e.code);
+        if (!(gemini && isNative() && capPlugin())) throw e;
+      }
+    }
+    // Fall through to native if Gemini failed on Android
+    if (isNative() && capPlugin()) return listenNative(capPlugin(), lang);
+    const Ctor = webSpeech();
+    if (Ctor) return listenWeb(Ctor, lang);
+    throw err('unsupported', 'Speech recognition is not available here.');
+  }
+
+  if (engine === 'web-speech') {
+    const Ctor = webSpeech();
+    if (Ctor) return listenWeb(Ctor, lang);
+    // Fallback to Gemini if web speech not available
+    if (platform.stt && canRecord()) {
+      try {
+        return await listenGemini(onLevel, passive);
+      } catch (e) {
+        const gemini = ['nokey', 'nogemini', 'badkey', 'badmodel', 'network'].includes(e.code);
+        if (!(gemini && isNative() && capPlugin())) throw e;
+      }
+    }
+    if (isNative() && capPlugin()) return listenNative(capPlugin(), lang);
+    throw err('unsupported', 'Web Speech API is not available in this browser.');
+  }
+
+  if (engine === 'android-native') {
+    if (isNative() && capPlugin()) return listenNative(capPlugin(), lang);
+    // Fallback to Gemini
+    if (platform.stt && canRecord()) {
+      try {
+        return await listenGemini(onLevel, passive);
+      } catch (e) {
+        const gemini = ['nokey', 'nogemini', 'badkey', 'badmodel', 'network'].includes(e.code);
+        if (!(gemini && isNative() && capPlugin())) throw e;
+      }
+    }
+    const Ctor = webSpeech();
+    if (Ctor) return listenWeb(Ctor, lang);
+    throw err('unsupported', 'Android native speech recognition is not available.');
+  }
+
+  if (engine === 'local') {
+    // Local STT stub - not implemented yet
+    throw err('unsupported', 'Local STT (Whisper.cpp) is not implemented yet');
+  }
+
+  // Default fallback (should not reach here)
   if (platform.stt && canRecord()) {
     try {
       return await listenGemini(onLevel, passive);
     } catch (e) {
-      // Gemini unusable on a phone -> fall back to the on-device recognizer instead of failing.
       const gemini = ['nokey', 'nogemini', 'badkey', 'badmodel', 'network'].includes(e.code);
       if (!(gemini && isNative() && capPlugin())) throw e;
     }
