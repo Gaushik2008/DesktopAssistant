@@ -231,3 +231,91 @@ test('"turn on the voice" works by voice command and starting the mic stops spee
   await sleep(30);
   assert.ok(cancels > before, 'speech cancelled when the mic opens');
 });
+
+// ---------------------------------------------------------- hands-free (ear) ------
+test('ear button toggles hands-free mode and persists', async () => {
+  const ear = $('ear');
+  assert.equal(ear.classList.contains('hidden'), false, 'ear button visible when speech supported');
+  // Initially on (default from localStorage)
+  assert.equal(ear.getAttribute('aria-pressed'), 'true');
+  const beforeHf = window.localStorage.getItem('sirpixel.handsfree');
+  assert.equal(beforeHf, '1');
+
+  // Click to turn off
+  ear.click();
+  await sleep(30);
+  assert.equal(ear.getAttribute('aria-pressed'), 'false');
+  assert.equal(window.localStorage.getItem('sirpixel.handsfree'), '0');
+
+  // Click to turn on
+  ear.click();
+  await sleep(30);
+  assert.equal(ear.getAttribute('aria-pressed'), 'true');
+  assert.equal(window.localStorage.getItem('sirpixel.handsfree'), '1');
+});
+
+test('hands-free off: mic click still works for one-shot listening', async () => {
+  // Turn off hands-free first
+  $('ear').click();
+  await sleep(30);
+  assert.equal($('ear').getAttribute('aria-pressed'), 'false');
+
+  // Mic click should open typebox fallback (no speech support in jsdom)
+  $('mic').click();
+  await sleep(30);
+  assert.equal($('typebox').classList.contains('hidden'), false);
+  assert.match(bubbleText(), /type a command/i);
+});
+
+// ---------------------------------------------------------- STT engine settings ------
+test('STT engine radio buttons appear in settings and persist choice', async () => {
+  // Open settings
+  $('gear').click();
+  await sleep(30);
+  assert.equal($('settings').classList.contains('hidden'), false);
+
+  // Check STT engine fieldset exists
+  const fieldset = $('stt-engine-fieldset');
+  assert.ok(fieldset, 'STT engine fieldset exists');
+  const radios = fieldset.querySelectorAll('input[name="stt-engine"]');
+  assert.equal(radios.length, 4, 'four STT engine options');
+
+  // Check values
+  assert.equal(radios[0].value, 'gemini');
+  assert.equal(radios[1].value, 'web-speech');
+  assert.equal(radios[2].value, 'android-native');
+  assert.equal(radios[3].value, 'local');
+
+  // Default should be gemini
+  assert.equal(radios[0].checked, true, 'gemini selected by default');
+
+  // Change to web-speech
+  radios[1].checked = true;
+  radios[1].dispatchEvent(new window.Event('change', { bubbles: true }));
+  await sleep(50);
+  assert.equal($('stt-status').textContent.includes('web-speech'), true);
+  assert.equal(window.localStorage.getItem('sirpixel.stt').includes('web-speech'), true);
+
+  // Change back to gemini
+  radios[0].checked = true;
+  radios[0].dispatchEvent(new window.Event('change', { bubbles: true }));
+  await sleep(50);
+  assert.equal($('stt-status').textContent.includes('gemini'), true);
+  assert.equal(window.localStorage.getItem('sirpixel.stt').includes('gemini'), true);
+});
+
+// ---------------------------------------------------------- voice commands (mic) ------
+test('mic click without speech support opens typed fallback', async () => {
+  $('mic').click();
+  await sleep(30);
+  assert.equal($('typebox').classList.contains('hidden'), false);
+  assert.match(bubbleText(), /type a command/i);
+});
+
+test('Escape key cancels listening and closes typebox', async () => {
+  $('mic').click();
+  await sleep(30);
+  assert.equal($('typebox').classList.contains('hidden'), false);
+  window.document.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+  assert.equal($('typebox').classList.contains('hidden'), true);
+});
