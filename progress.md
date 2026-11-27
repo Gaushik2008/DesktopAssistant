@@ -68,3 +68,12 @@ _Last updated: 2026-11-26_
 - **Hands-free died forever without a key**: the always-listening loop recorded speech, hit `nokey`, and persisted "off". It now waits for a key without recording, and resumes automatically after a successful Test in settings.
 - Removed stray `syncEar(); startHandsFree();` calls inside the idle-quip timer.
 - Added `test/gemini-fixes.test.mjs`; full suite passes (85 tests).
+
+## 2026-11-27 (session 6) - Post-merge cleanup & model recovery hardening
+
+- **Resolved merge conflict** in `src/web/core/llm.js` (stash vs origin/main): kept origin/main's implementation (cleanKey, errorDetail, 1024 tokens, `detail` arg for `friendlyHttpError`/`sttErrorFromStatus`, `hasKey` reflects decryptable key, normalized base-URL comparison). Stashed changes (`gemini-3.8-flash` model, simpler 400 handling) were a regression and discarded.
+- **Fixed model recovery logic** in `electron/llm.js`: now triggers on 400/404/500 **but NOT on bad API key** (chat checks message for "API key was rejected", STT checks `code === 'badkey'`). Added 4 new tests: 400 bad-key no-retry (chat), 400 bad-key no-retry (STT), 400 unsupported-model retries, 500 retries.
+- **Removed custom launcher**: `launch-electron.js` was only filtering cosmetic VAAPI/X11 stderr; `electron/main.js` already disables GPU/VAAPI on Linux. Reverted `package.json` scripts to `electron .` / `electron . --dev`. Deleted 7 untracked `test-main*.js` scratch files.
+- **Fixed jsdom/undici Node version mismatch**: downgraded `jsdom` from 31.0.1 (requires Node ^22.22.2) to 25.0.1 (Node >=18). All 89 tests pass.
+- **Android parity**: `src/web/platform.js` now passes `detail` to `friendlyHttpError`/`sttErrorFromStatus` (reads error body from CapacitorHttp response) and implements the same `withModelRecovery` logic (ListModels on 400/404/500 without bad-key indication).
+- **NOT verified**: live Gemini calls (no API key), real microphone, Android APK build, Windows run, Xvfb smoke test (Xvfb not installed).
