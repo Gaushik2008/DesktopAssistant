@@ -28,19 +28,38 @@ test('REGRESSION: a full sentence with gaps and quieter words is NOT cut after t
   ]);
   assert.equal(r.verdict, 'end');
   // must keep listening through the whole sentence (~3 s of speech+gaps) before ending on trailing silence
-  assert.ok(r.at > 400 + 350 + 700 + 300 + 600 + 400 + 500 + 1100, `ended too early at ${r.at} ms`);
+  assert.ok(r.at > 400 + 350 + 700 + 300 + 600 + 400 + 500 + 1300, `ended too early at ${r.at} ms`);
 });
 
 test('speech starting immediately (no leading silence to calibrate on) still works', () => {
   const r = run([[QUIET_WORD, 1200], [SILENCE, 3000]]);
   assert.equal(r.verdict, 'end');
-  assert.ok(r.at >= 1200 + 1200, `ended too early at ${r.at} ms`);
+  assert.ok(r.at >= 1200 + 1400, `ended too early at ${r.at} ms`);
 });
 
-test('ends ~1.2-2 s after the user stops talking', () => {
-  const r = run([[SILENCE, 500], [LOUD, 800], [SILENCE, 5000]]);
+test('a normal-length utterance ends 1.4-2.4 s after the user stops talking', () => {
+  const r = run([[SILENCE, 500], [LOUD, 2500], [SILENCE, 5000]]);
   assert.equal(r.verdict, 'end');
-  assert.ok(r.at >= 500 + 800 + 1200 && r.at <= 500 + 800 + 1200 + 800, `ended at ${r.at}`);
+  assert.ok(r.at >= 500 + 2500 + 1400 && r.at <= 500 + 2500 + 1400 + 1000, `ended at ${r.at}`);
+});
+
+test('a lone short word ("DO.IT") waits longer for the rest of the sentence', () => {
+  const r = run([[SILENCE, 500], [LOUD, 600], [SILENCE, 5000]]);
+  assert.equal(r.verdict, 'end');
+  assert.ok(r.at >= 500 + 600 + 1400 + 700, `gave up too soon at ${r.at}`);
+});
+
+test('REGRESSION: first word, then a 1.5 s thinking pause, then the rest of the command', () => {
+  // "Play" ...(1.5 s)... "Graffitia by Green Day" ...
+  const r = run([[LOUD, 400], [SILENCE, 1500], [QUIET_WORD, 1400], [SILENCE, 4000]]);
+  assert.equal(r.verdict, 'end');
+  assert.ok(r.at > 400 + 1500 + 1400 + 1300, `cut off mid-sentence at ${r.at}`);
+});
+
+test('a 1.3 s pause in the middle of a longer sentence does not end it', () => {
+  const r = run([[LOUD, 1000], [SILENCE, 300], [LOUD, 1000], [SILENCE, 1300], [QUIET_WORD, 800], [SILENCE, 4000]]);
+  assert.equal(r.verdict, 'end');
+  assert.ok(r.at > 1000 + 300 + 1000 + 1300 + 800 + 1300, `cut off at ${r.at}`);
 });
 
 test('a 700 ms thinking pause mid-sentence does not end the recording', () => {

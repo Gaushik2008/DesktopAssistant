@@ -53,10 +53,12 @@ export function toBase64(arrayBuffer) {
  *    made everything after the first word look like silence).
  *  - Levels are smoothed (EMA) so brief dips between words / syllables don't count as silence.
  *  - Speech starts above `onFactor`x floor; it only ends after `silenceMs` below `offFactor`x floor.
+ *  - A very short utterance (just "Play" / "DO.IT") is probably the START of a sentence, so it gets
+ *    `shortExtraMs` more patience before we call it finished. Longer speech ends after `silenceMs`.
  * push() returns 'continue' | 'end' (speech finished) | 'no-speech' (gave up) | 'max'.
  */
-export function createVad({ silenceMs = 1200, noSpeechMs = 7000, maxMs = 15000, minThreshold = 0.006, onFactor = 3, offFactor = 1.8 } = {}) {
-  let floor = null, ema = 0, t0 = null, heard = false, lastVoice = 0;
+export function createVad({ silenceMs = 1400, shortUtteranceMs = 1500, shortExtraMs = 700, noSpeechMs = 7000, maxMs = 15000, minThreshold = 0.006, onFactor = 3, offFactor = 1.8 } = {}) {
+  let floor = null, ema = 0, t0 = null, heard = false, lastVoice = 0, firstVoice = 0;
   return {
     get heardSpeech() { return heard; },
     push(rms, now) {
@@ -65,10 +67,11 @@ export function createVad({ silenceMs = 1200, noSpeechMs = 7000, maxMs = 15000, 
       floor = floor === null ? rms : Math.min(rms, Math.min(floor * 1.015 + 1e-5, 0.03));
       const on = Math.max(minThreshold * 1.5, floor * onFactor);
       const off = Math.max(minThreshold, floor * offFactor);
-      if (ema > on) { heard = true; lastVoice = now; }
+      if (ema > on) { if (!heard) firstVoice = now; heard = true; lastVoice = now; }
       else if (heard && ema > off) lastVoice = now; // still faintly talking - keep going
       if (now - t0 > maxMs) return heard ? 'max' : 'no-speech';
-      if (heard && now - lastVoice > silenceMs) return 'end';
+      const need = lastVoice - firstVoice < shortUtteranceMs ? silenceMs + shortExtraMs : silenceMs;
+      if (heard && now - lastVoice > need) return 'end';
       if (!heard && now - t0 > noSpeechMs) return 'no-speech';
       return 'continue';
     },
@@ -79,7 +82,7 @@ export function createVad({ silenceMs = 1200, noSpeechMs = 7000, maxMs = 15000, 
  * Start recording. Returns { result: Promise<{base64, mime, ms}>, stop(), cancel() }.
  * result rejects with code: 'denied' | 'no-mic' | 'no-speech' | 'cancelled' | 'error'
  */
-export function record({ maxMs = 15000, silenceMs = 1200, noSpeechMs = 7000, onLevel = () => {} } = {}) {
+export function record({ maxMs = 15000, silenceMs = 1400, noSpeechMs = 7000, onLevel = () => {} } = {}) {
   let stopFn = () => {};
   let cancelFn = () => {};
 
