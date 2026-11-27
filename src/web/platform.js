@@ -41,13 +41,50 @@ const desktop = () => ({
 // CapacitorHttp plugin (no CORS, and it can reach a PC on your LAN running Ollama/LM Studio).
 const LLM_KEY = 'sirpixel.llm';
 const llmDefaults = { provider: 'gemini', baseUrl: PRESETS.gemini.baseUrl, model: PRESETS.gemini.model };
+const GEMINI_HOST = 'generativelanguage.googleapis.com';
 const readLlm = () => { try { return { ...llmDefaults, ...JSON.parse(localStorage.getItem(LLM_KEY) || '{}') }; } catch { return { ...llmDefaults }; } };
+const isGemini = (s) => { try { return new URL(s.baseUrl).hostname === GEMINI_HOST; } catch { return false; } };
+const cleanKey = (k) => String(k || '').replace(/[^\x21-\x7E]/g, '').replace(/^["'`]+|["'`]+$/g, '');
+
+// Extract error detail from CapacitorHttp response (similar to electron's readDetail)
+async function readDetail(res) {
+  try {
+    const data = typeof res.data === 'string' ? JSON.parse(res.data) : res.data;
+    const e = data && (Array.isArray(data) ? data[0] : data).error;
+    const m = e && typeof e.message === 'string' ? e.message : '';
+    return m.replace(/\s+/g, ' ').trim().slice(0, 200);
+  } catch { return ''; }
+}
+
+// Model recovery for Android (mirrors electron/llm.js withModelRecovery)
+async function withModelRecovery(run, fetchImpl) {
+  const out = await run();
+  const isBadKey = out.code === 'badkey' || /api key was rejected/i.test(out.message || '');
+  const isModelError = (out.status === 400 || out.status === 404 || out.status >= 500 || out.code === 'badmodel') && !isBadKey;
+  if (out.ok || !isModelError) return out;
+  const raw = readLlm();
+  if (!raw.apiKey || !isGemini(raw)) return out;
+  const listUrl = 'https://generativelanguage.googleapis.com/v1beta/models?pageSize=200';
+  try {
+    const res = await fetchImpl(listUrl, { method: 'GET', headers: { 'x-goog-api-key': cleanKey(raw.apiKey) } });
+    if (res.status !== 200) return out;
+    const data = typeof res.data === 'string' ? JSON.parse(res.data) : res.data;
+    const { chooseGeminiModel } = await import('./core/llm.js');
+    const model = chooseGeminiModel(data.models);
+    if (!model || model === raw.model) return out;
+    raw.model = model;
+    try { localStorage.setItem(LLM_KEY, JSON.stringify(raw)); } catch { /* ignore */ }
+    const again = await run();
+    return again.ok ? { ...again, model } : out;
+  } catch { return out; }
+}
+
 const androidLlm = () => ({
   async getSettings() { const d = readLlm(); return { provider: d.provider, baseUrl: d.baseUrl, model: d.model, hasKey: Boolean(d.apiKey) }; },
   async saveSettings(input) {
     const cur = readLlm();
     const next = { provider: input.provider || cur.provider, baseUrl: String(input.baseUrl ?? cur.baseUrl).trim(), model: String(input.model ?? cur.model).trim(), apiKey: cur.apiKey };
-    if (next.baseUrl !== cur.baseUrl && !input.apiKey) next.apiKey = undefined; // never re-send a key to a different server
+    if (next.baseUrl !== cur.baseUrl && !input.apiKey) next.apiKey = undefined;
     if (typeof input.apiKey === 'string' && input.apiKey.trim()) next.apiKey = input.apiKey.trim();
     if (input.clearKey) next.apiKey = undefined;
     try { localStorage.setItem(LLM_KEY, JSON.stringify(next)); } catch { /* ignore */ }
@@ -59,12 +96,15 @@ const androidLlm = () => ({
     if (!v.ok) return { ok: false, message: v.error };
     const req = buildRequest(settings, history, String(text).slice(0, 2000));
     const host = new URL(req.url).host;
-    try {
-      const res = await window.Capacitor.Plugins.CapacitorHttp.request({ url: req.url, method: 'POST', headers: req.headers, data: req.body, connectTimeout: 15000, readTimeout: 30000 });
-      if (res.status < 200 || res.status >= 300) return { ok: false, message: friendlyHttpError(res.status, host) };
-      const reply = extractReply(typeof res.data === 'string' ? JSON.parse(res.data) : res.data);
-      return reply ? { ok: true, reply } : { ok: false, message: 'The AI sent an empty answer.' };
-    } catch { return { ok: false, message: `Couldn't reach ${host}. Is it running / are you online?` }; }
+    return withModelRecovery(async () => {
+      try {
+        const res = await window.Capacitor.Plugins.CapacitorHttp.request({ url: req.url, method: 'POST', headers: req.headers, data: req.body, connectTimeout: 15000, readTimeout: 30000 });
+        const detail = await readDetail(res);
+        if (res.status < 200 || res.status >= 300) return { ok: false, message: friendlyHttpError(res.status, host, detail), status: res.status };
+        const reply = extractReply(typeof res.data === 'string' ? JSON.parse(res.data) : res.data);
+        return reply ? { ok: true, reply } : { ok: false, message: 'The AI sent an empty answer.' };
+      } catch { return { ok: false, message: `Couldn't reach ${host}. Is it running / are you online?` }; }
+    }, window.Capacitor.Plugins.CapacitorHttp.request.bind(window.Capacitor.Plugins.CapacitorHttp));
   },
 });
 
@@ -74,13 +114,16 @@ const androidStt = () => ({
     const bad = checkSttReady(settings, base64);
     if (bad) return bad;
     const req = buildTranscribeRequest(settings, base64);
-    try {
-      const res = await window.Capacitor.Plugins.CapacitorHttp.request({ url: req.url, method: 'POST', headers: req.headers, data: req.body, connectTimeout: 15000, readTimeout: 30000 });
-      if (res.status < 200 || res.status >= 300) return { ok: false, ...sttErrorFromStatus(res.status) };
-      const text = extractTranscript(typeof res.data === 'string' ? JSON.parse(res.data) : res.data);
-      if (text === null) return { ok: false, code: 'error', message: 'Gemini sent an unreadable answer.' };
-      return text ? { ok: true, text } : { ok: false, code: 'no-speech', message: "I didn't catch that." };
-    } catch { return { ok: false, code: 'network', message: "Couldn't reach Gemini. Are you online?" }; }
+    return withModelRecovery(async () => {
+      try {
+        const res = await window.Capacitor.Plugins.CapacitorHttp.request({ url: req.url, method: 'POST', headers: req.headers, data: req.body, connectTimeout: 15000, readTimeout: 30000 });
+        const detail = await readDetail(res);
+        if (res.status < 200 || res.status >= 300) return { ok: false, ...sttErrorFromStatus(res.status, detail) };
+        const text = extractTranscript(typeof res.data === 'string' ? JSON.parse(res.data) : res.data);
+        if (text === null) return { ok: false, code: 'error', message: 'Gemini sent an unreadable answer.' };
+        return text ? { ok: true, text } : { ok: false, code: 'no-speech', message: "I didn't catch that." };
+      } catch { return { ok: false, code: 'network', message: "Couldn't reach Gemini. Are you online?" }; }
+    }, window.Capacitor.Plugins.CapacitorHttp.request.bind(window.Capacitor.Plugins.CapacitorHttp));
   },
 });
 
