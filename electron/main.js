@@ -23,9 +23,11 @@ app.on('second-instance', () => win && (win.show(), win.focus()));
 // Transparent windows need a compositor on Linux; GPU quirks are common on VMs.
 if (process.platform === 'linux') {
   app.commandLine.appendSwitch('enable-transparent-visuals');
-  // Wayland compositors ignore "always on top" from normal windows; XWayland honours it.
-  // Set SIRPIXEL_OZONE=wayland to opt out.
-  app.commandLine.appendSwitch('ozone-platform', process.env.SIRPIXEL_OZONE || 'x11');
+  // Default to native Wayland on Wayland sessions (XWayland breaks transparent always-on-top).
+  // Override with SIRPIXEL_OZONE=x11 if needed.
+  const isWayland = process.env.XDG_SESSION_TYPE === 'wayland' || process.env.WAYLAND_DISPLAY;
+  const ozone = process.env.SIRPIXEL_OZONE || (isWayland ? 'wayland' : 'x11');
+  app.commandLine.appendSwitch('ozone-platform', ozone);
   // Many Linux GPU/VAAPI drivers are too old for Chromium and crash the GPU process on start
   // ("VAAPI version is too old", exit_code=11), which breaks the transparent window. Software
   // rendering is plenty for a small 2D pet. Set SIRPIXEL_GPU=1 to opt back in.
@@ -68,13 +70,15 @@ function createWindow() {
   setInterval(keepOnTop, 3000);
   win.loadFile(path.join(__dirname, '..', 'src', 'web', 'index.html'));
   win.once('ready-to-show', () => win.show());
+  win.on('unresponsive', () => console.error('[sirpixel] window unresponsive'));
+  win.webContents.on('crashed', (e, killed) => console.error('[sirpixel] renderer crashed:', killed));
+  win.webContents.on('render-process-gone', (e, d) => console.error('[sirpixel] render-process-gone:', d.reason));
   if (process.env.SIRPIXEL_DEBUG) {
     const log = (...a) => console.error('[sirpixel]', ...a);
     log('session', process.env.XDG_SESSION_TYPE, 'ozone', app.commandLine.getSwitchValue('ozone-platform') || '(default)', 'electron', process.versions.electron);
     win.once('ready-to-show', () => log('ready-to-show; bounds', JSON.stringify(win.getBounds()), 'onTop', win.isAlwaysOnTop()));
     win.webContents.on('did-finish-load', () => log('page loaded'));
     win.webContents.on('console-message', (_e, lvl, msg) => lvl >= 2 && log('renderer:', msg));
-    win.webContents.on('render-process-gone', (_e, d) => log('renderer gone', d.reason));
     win.on('closed', () => log('window closed'));
     app.on('child-process-gone', (_e, d) => log('child gone', d.type, d.reason));
   }
@@ -105,26 +109,36 @@ function toggleWindow() {
 }
 
 function createTray() {
-  const icon = nativeImage.createFromPath(path.join(__dirname, '..', 'assets', 'icon.png')).resize({ width: 22, height: 22 });
-  tray = new Tray(icon);
-  tray.setToolTip('DO.IT');
-  tray.setContextMenu(Menu.buildFromTemplate([
-    { label: 'Talk (Ctrl+Alt+Space)', click: () => { win.show(); win.webContents.send('toggle-listen'); } },
-    { label: 'Type a command (Ctrl+Alt+T)', click: () => { win.show(); win.focus(); win.webContents.send('type-command'); } },
-    { label: 'Settings (Gemini API key)', click: () => { win.show(); win.focus(); win.webContents.send('open-settings'); } },
-    { label: 'Always on top', type: 'checkbox', checked: true, click: (item) => { onTop = item.checked; win.setAlwaysOnTop(onTop, 'screen-saver'); if (onTop) keepOnTop(); } },
-    { label: 'Show / Hide', click: toggleWindow },
-    { type: 'separator' },
-    { label: 'Quit', click: () => app.quit() },
-  ]));
-  tray.on('click', toggleWindow);
+  try {
+    const icon = nativeImage.createFromPath(path.join(__dirname, '..', 'assets', 'icon.png')).resize({ width: 22, height: 22 });
+    tray = new Tray(icon);
+    tray.setToolTip('DO.IT');
+    tray.setContextMenu(Menu.buildFromTemplate([
+      { label: 'Talk (Ctrl+Alt+Space)', click: () => { win.show(); win.webContents.send('toggle-listen'); } },
+      { label: 'Type a command (Ctrl+Alt+T)', click: () => { win.show(); win.focus(); win.webContents.send('type-command'); } },
+      { label: 'Settings (Gemini API key)', click: () => { win.show(); win.focus(); win.webContents.send('open-settings'); } },
+      { label: 'Always on top', type: 'checkbox', checked: true, click: (item) => { onTop = item.checked; win.setAlwaysOnTop(onTop, 'screen-saver'); if (onTop) keepOnTop(); } },
+      { label: 'Show / Hide', click: toggleWindow },
+      { type: 'separator' },
+      { label: 'Quit', click: () => app.quit() },
+    ]));
+    tray.on('click', toggleWindow);
+  } catch (e) {
+    console.error('[sirpixel] tray creation failed:', e);
+  }
 }
 
 app.whenReady().then(() => {
   createWindow();
   createTray();
-  globalShortcut.register('CommandOrControl+Alt+Space', () => { win.show(); win.webContents.send('toggle-listen'); });
-  globalShortcut.register('CommandOrControl+Alt+T', () => { win.show(); win.focus(); win.webContents.send('type-command'); });
+  try {
+    globalShortcut.register('CommandOrControl+Alt+Space', () => { win.show(); win.webContents.send('toggle-listen'); });
+    globalShortcut.register('CommandOrControl+Alt+T', () => { win.show(); win.focus(); win.webContents.send('type-command'); });
+  } catch (e) {
+    console.error('[sirpixel] globalShortcut register failed:', e);
+  }
+}).catch((e) => {
+  console.error('[sirpixel] app.whenReady failed:', e);
 });
 
 app.on('will-quit', () => globalShortcut.unregisterAll());
@@ -161,9 +175,9 @@ ipcMain.on('move-by', (e, dx, dy) => {
 let llmStore;
 const store = () => (llmStore ||= llm.createStore({ file: path.join(app.getPath('userData'), 'llm.json'), safeStorage }));
 const isObj = (v) => v && typeof v === 'object' && !Array.isArray(v);
-ipcMain.handle('llm:get-settings', () => store().get());
-ipcMain.handle('llm:save-settings', (_e, input) => (isObj(input) ? store().save(input) : store().get()));
-ipcMain.handle('llm:chat', (_e, req) => {
+ipcMain.handle('llm:get-settings', async () => await store().get());
+ipcMain.handle('llm:save-settings', async (_e, input) => (isObj(input) ? await store().save(input) : await store().get()));
+ipcMain.handle('llm:chat', async (_e, req) => {
   if (!isObj(req)) return { ok: false, message: 'Bad request.' };
   const history = Array.isArray(req.history) ? req.history : [];
   return llm.withModelRecovery((settings) => llm.chat({ settings, history, text: req.text }), store());
