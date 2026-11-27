@@ -195,7 +195,17 @@ Pipeline (`src/web/recorder.js` → `speech.js` → main process → Gemini `gen
 3. **Desktop:** the clip goes to the Electron main process, which calls Gemini — the API key never reaches the UI. **Android:** native HTTP plugin.
 4. The transcript goes through the normal command parser → action, or → Gemini chat if no command matches.
 
-Fallback order in `speech.js`: Gemini → Android native recogniser (if Gemini fails on a phone) → Web Speech (real Chrome only) → typed box (`Ctrl+Alt+T`). Errors are specific: missing/invalid key and wrong model reopen the settings panel; quota, network, mic-denied and no-mic show a clear bubble and the typed box.
+**STT engine choice (offline/private options):** In the settings panel (⚙ gear), under **Speech-to-text**, you can choose the engine:
+| Engine | Description |
+|---|---|
+| **Google Gemini** (default) | Cloud, requires API key; best accuracy |
+| **Web Speech API** | Browser-built-in (Chrome/Edge), no key; does NOT work in Electron |
+| **Android native** | On-device recognizer (Capacitor plugin), offline capable |
+| **Local (Whisper.cpp)** | Coming soon — Tauri sidecar for fully offline transcription |
+
+The choice is persisted in `localStorage` (`sirpixel.stt`) and works across all platforms.
+
+Fallback order in `speech.js`: selected engine → (if Gemini fails on phone) Android native → Web Speech → typed box (`Ctrl+Alt+T`). Errors are specific: missing/invalid key and wrong model reopen the settings panel; quota, network, mic-denied and no-mic show a clear bubble and the typed box.
 
 **Wrong model name (HTTP 404)?** Gemini model names change often. If Google rejects the saved model, DO.IT asks Google which models your key can use (`ListModels`), picks the newest plain *Flash*, saves it and retries automatically — the settings panel then shows *Connected (using …)*. This runs for both chat and voice on desktop; on Android, enter a model name manually.
 

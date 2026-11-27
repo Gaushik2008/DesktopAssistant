@@ -1,6 +1,6 @@
 # Progress
 
-_Last updated: 2026-11-26_
+_Last updated: 2026-11-27_
 
 ## Status legend
 - [x] done and verified  - [~] written, not yet verified on a real device  - [ ] not started
@@ -68,3 +68,10 @@ _Last updated: 2026-11-26_
 - **Hands-free died forever without a key**: the always-listening loop recorded speech, hit `nokey`, and persisted "off". It now waits for a key without recording, and resumes automatically after a successful Test in settings.
 - Removed stray `syncEar(); startHandsFree();` calls inside the idle-quip timer.
 - Added `test/gemini-fixes.test.mjs`; full suite passes (85 tests).
+
+## 2026-11-27 - Adaptive VAD (full sentence listening) + STT engine choice
+
+- **Adaptive VAD**: The voice-activity detector now waits longer after short utterances. If the user says "Play" (350 ms) and pauses to think (1.6 s), the old recorder cut there (1.2 s silence). New logic: speech < 1.5 s gets an extra 700 ms silence tolerance (total ~2.1 s). Unit tests: 11 VAD tests pass (regression + adaptive cases). E2E test `npm run e2e:sentence` passes with a fake WAV containing two tone bursts separated by 1.6 s pause.
+- **STT engine choice (offline/private voice)**: Added settings UI (radio buttons) to choose STT engine: Google Gemini (cloud), Web Speech API (browser), Android native (on-device), Local Whisper.cpp (stub, coming soon). Choice persisted in `localStorage` (`sirpixel.stt`). `platform.getSttEngine()/setSttEngine()` for cross-platform access. `speech.js listen()` respects engine priority with fallbacks. Local engine returns `unsupported`.
+- **UI tests**: Added jsdom integration tests for ear button (hands-free toggle), STT engine radio buttons, mic click fallback, Escape key handling.
+- All VAD tests pass; e2e sentence and handsfree tests pass; full suite 69/70 pass (1 UI test has pre-existing Node.js/undici zstd compat issue).
