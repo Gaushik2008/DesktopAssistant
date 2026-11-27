@@ -68,18 +68,18 @@ test('chat() maps failures to friendly messages', async () => {
   assert.match((await chat({ settings: nvidia, text: '  ', fetchImpl: ok({}) })).message, /Nothing to ask/);
 });
 
-test('store: key is encrypted on disk, never returned, dropped when the server changes', () => {
+test('store: key is encrypted on disk, never returned, dropped when the server changes', async () => {
   const file = join(mkdtempSync(join(tmpdir(), 'sp-')), 'llm.json');
   const safeStorage = { isEncryptionAvailable: () => true, encryptString: (s) => Buffer.from(`ENC(${s})`), decryptString: (b) => b.toString().slice(4, -1) };
   const store = createStore({ file, safeStorage });
-  assert.equal(store.get().hasKey, false);
-  const saved = store.save({ provider: 'nvidia', baseUrl: PRESETS.nvidia.baseUrl, model: 'm', apiKey: 'nvapi-secret' });
+  assert.equal((await store.get()).hasKey, false);
+  const saved = await store.save({ provider: 'nvidia', baseUrl: PRESETS.nvidia.baseUrl, model: 'm', apiKey: 'nvapi-secret' });
   assert.deepEqual(saved, { provider: 'nvidia', baseUrl: PRESETS.nvidia.baseUrl, model: 'm', hasKey: true });
   assert.ok(!readFileSync(file, 'utf8').includes('nvapi-secret'), 'plaintext key must not be on disk');
-  assert.equal(store.getRaw().apiKey, 'nvapi-secret');
-  assert.equal(JSON.stringify(store.get()).includes('nvapi'), false);
-  store.save({ model: 'other' }); // same server: key kept
-  assert.equal(store.getRaw().apiKey, 'nvapi-secret');
-  store.save({ baseUrl: 'https://other.example.com/v1' }); // different server, no new key: key dropped
-  assert.equal(store.getRaw().hasKey, false);
+  assert.equal((await store.getRaw()).apiKey, 'nvapi-secret');
+  assert.equal(JSON.stringify(await store.get()).includes('nvapi'), false);
+  await store.save({ model: 'other' }); // same server: key kept
+  assert.equal((await store.getRaw()).apiKey, 'nvapi-secret');
+  await store.save({ baseUrl: 'https://other.example.com/v1' }); // different server, no new key: key dropped
+  assert.equal((await store.getRaw()).hasKey, false);
 });

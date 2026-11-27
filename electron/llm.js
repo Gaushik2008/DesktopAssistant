@@ -22,10 +22,16 @@ function createStore({ file, safeStorage }) {
   const encrypt = (key) => (safeStorage && safeStorage.isEncryptionAvailable()
     ? `enc:${safeStorage.encryptString(key).toString('base64')}`
     : `plain:${Buffer.from(key).toString('base64')}`);
-  const decrypt = (v) => {
+  const decrypt = async (v) => {
     if (!v) return '';
     try {
-      if (v.startsWith('enc:')) return safeStorage.decryptString(Buffer.from(v.slice(4), 'base64'));
+      if (v.startsWith('enc:')) {
+        if (safeStorage && safeStorage.decryptStringAsync) {
+          return await safeStorage.decryptStringAsync(Buffer.from(v.slice(4), 'base64'));
+        }
+        // Fallback for older Electron versions
+        return safeStorage.decryptString(Buffer.from(v.slice(4), 'base64'));
+      }
       if (v.startsWith('plain:')) return Buffer.from(v.slice(6), 'base64').toString('utf8');
     } catch { /* unreadable */ }
     return '';
@@ -33,14 +39,16 @@ function createStore({ file, safeStorage }) {
 
   return {
     /** Safe for the renderer: never includes the key. */
-    get() {
+    async get() {
       const d = { ...DEFAULTS, ...read() };
-      return { provider: d.provider, baseUrl: d.baseUrl, model: d.model, hasKey: Boolean(decrypt(d.key)) };
+      const key = await decrypt(d.key);
+      return { provider: d.provider, baseUrl: d.baseUrl, model: d.model, hasKey: Boolean(key) };
     },
     /** Main process only. */
-    getRaw() {
+    async getRaw() {
       const d = { ...DEFAULTS, ...read() };
-      return { provider: d.provider, baseUrl: d.baseUrl, model: d.model, apiKey: decrypt(d.key), hasKey: Boolean(decrypt(d.key)) };
+      const key = await decrypt(d.key);
+      return { provider: d.provider, baseUrl: d.baseUrl, model: d.model, apiKey: key, hasKey: Boolean(key) };
     },
     save(input) {
       const cur = { ...DEFAULTS, ...read() };

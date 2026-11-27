@@ -21,7 +21,7 @@ const MAX_REPLY_CHARS = 600;
 /** http is only allowed for this machine / private networks; everything else must be https. */
 export function isLocalHost(hostname) {
   const h = hostname.toLowerCase();
-  return h === 'localhost' || h === '127.0.0.1' || h === '[::1]' || h.endsWith('.local') ||
+  return h === 'localhost' || h === '127.0.0.1' || h === '0.0.0.0' || h === '[::1]' || h.endsWith('.local') ||
     /^10\./.test(h) || /^192\.168\./.test(h) || /^172\.(1[6-9]|2\d|3[01])\./.test(h);
 }
 

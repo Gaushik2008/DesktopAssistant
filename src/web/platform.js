@@ -35,14 +35,20 @@ const desktop = () => ({
   llm: window.assistant.llm,
   stt: window.assistant.stt || null,
   onOpenSettings: window.assistant.onOpenSettings || noop,
+  getSttEngine: () => window.assistant.stt?.getSttEngine?.() || 'gemini',
+  setSttEngine: (engine) => window.assistant.stt?.setSttEngine?.(engine) || writeStt(engine),
 });
 
 // Android: settings live in the app's private WebView storage; HTTP goes through the native
 // CapacitorHttp plugin (no CORS, and it can reach a PC on your LAN running Ollama/LM Studio).
 const LLM_KEY = 'sirpixel.llm';
+const STT_KEY = 'sirpixel.stt';
 const llmDefaults = { provider: 'gemini', baseUrl: PRESETS.gemini.baseUrl, model: PRESETS.gemini.model };
+const sttDefaults = { engine: 'gemini' };
 const GEMINI_HOST = 'generativelanguage.googleapis.com';
 const readLlm = () => { try { return { ...llmDefaults, ...JSON.parse(localStorage.getItem(LLM_KEY) || '{}') }; } catch { return { ...llmDefaults }; } };
+const readStt = () => { try { return { ...sttDefaults, ...JSON.parse(localStorage.getItem(STT_KEY) || '{}') }; } catch { return { ...sttDefaults }; } };
+const writeStt = (engine) => { try { localStorage.setItem(STT_KEY, JSON.stringify({ engine })); } catch { /* ignore */ } };
 const isGemini = (s) => { try { return new URL(s.baseUrl).hostname === GEMINI_HOST; } catch { return false; } };
 const cleanKey = (k) => String(k || '').replace(/[^\x21-\x7E]/g, '').replace(/^["'`]+|["'`]+$/g, '');
 
@@ -127,13 +133,48 @@ const androidStt = () => ({
   },
 });
 
+// Web Speech API STT (browser-only, no API key needed)
+const webSpeechStt = () => ({
+  async transcribe() {
+    return { ok: false, code: 'unsupported', message: 'Web Speech API is used directly in speech.js, not via platform.stt' };
+  },
+});
+
+// Android native STT (Capacitor SpeechRecognition plugin)
+const androidNativeStt = () => ({
+  async transcribe() {
+    return { ok: false, code: 'unsupported', message: 'Android native STT is used directly in speech.js, not via platform.stt' };
+  },
+});
+
+// Local STT stub (Whisper.cpp via Tauri sidecar - coming soon)
+const localStt = () => ({
+  async transcribe() {
+    return { ok: false, code: 'unsupported', message: 'Local STT (Whisper.cpp) is not implemented yet' };
+  },
+});
+
+// Build the STT implementation based on user's engine choice
+function buildStt() {
+  const { engine } = readStt();
+  switch (engine) {
+    case 'web-speech': return webSpeechStt();
+    case 'android-native': return androidNativeStt();
+    case 'local': return localStt();
+    case 'gemini':
+    default: return androidStt(); // On Android, Gemini uses CapacitorHttp; on desktop it's in window.assistant.stt
+  }
+}
+
 const android = () => {
   const P = () => window.Capacitor.Plugins;
   return {
     name: 'android',
     nativeSpeech: true,
     llm: androidLlm(),
-    stt: androidStt(),
+    stt: buildStt(),
+    getSttEngine: () => readStt().engine,
+    setSttEngine: (engine) => { writeStt(engine); return readStt(); },
     async execute(action) {
       if (!action) return { ok: true };
       try {
@@ -172,8 +213,10 @@ const android = () => {
 const web = () => ({
   name: 'web',
   nativeSpeech: false,
-  stt: null,
+  stt: buildStt(),
   llm: null, // AI chat needs the desktop or Android app (browser CORS/CSP)
+  getSttEngine: () => readStt().engine,
+  setSttEngine: (engine) => { writeStt(engine); return readStt(); },
   async execute(action) {
     if (!action) return { ok: true };
     let url = null;
